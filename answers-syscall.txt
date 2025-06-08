@@ -1,0 +1,6 @@
+usertrap
+7   SYS_exec
+user (我不明白，这里为什么就已经到user状态了？)
+lw	a3,0    a3
+是的, 地址0没有映射到内核空间中。崩溃之后 $scause = 13, 在手册里意味着 Load Page Fault.
+initcode; pid=1
