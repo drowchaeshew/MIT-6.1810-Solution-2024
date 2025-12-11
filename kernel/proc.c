@@ -193,6 +193,17 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
+#ifdef LAB_PGTBL
+  char *pa = kalloc();
+  if (mappages(pagetable, USYSCALL, PGSIZE, (uint64)pa, PTE_U|PTE_R) != 0) {
+    uvmfree(pagetable, 0);
+    return 0;
+  }
+  struct usyscall *u = (struct usyscall *)pa;
+  u->pid = p->pid;
+#endif
+
+
   // map the trapframe page just below the trampoline page, for
   // trampoline.S.
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
@@ -212,6 +223,11 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+
+#ifdef LAB_PGTBL
+  uvmunmap(pagetable, USYSCALL, 1, 0);
+#endif
+
   uvmfree(pagetable, sz);
 }
 
