@@ -108,7 +108,13 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
       }
 #endif
     } else {
-      if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
+      if (!alloc) 
+        return 0;
+      if (alloc == 2 && level == 1) {
+        *pte |= PTE_S;
+        return pte;
+      }
+      if((pagetable = (pde_t*)kalloc()) == 0)
         return 0;
       memset(pagetable, 0, PGSIZE);
       *pte = PA2PTE(pagetable) | PTE_V;
@@ -123,6 +129,8 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
+  // 这里没有必要判断 pte 来自于哪个 level 的页表。
+  // PTE2PA(*pte) 的结果肯定是对齐的，如果来自于 level 1.
   pte_t *pte;
   uint64 pa;
 
@@ -159,6 +167,18 @@ kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
 int
 mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 {
+  // 所有使用此接口的地方，都默认保证了物理地址是 4K 对齐的。
+  // 由于物理页面总是通过 kalloc / kalloc_super 分配的，
+  // 我们总是可以认为物理地址是正确对齐的。（因此不用检查）。
+  // 
+  // 可以假定使用时，size 不会超过 2M: 
+  // 毕竟没有方法, 可以一下子申请连续的超过 2M 的内存。
+  // 所以，如果 va 是 2M 对齐的，size == 2M，
+  // 就直接映射吧。
+  // 其他情况，走原来的逻辑。
+  // 
+  // (使用时注意： 得到pa申请物理内存的大小，要超过size)
+
   uint64 a, last;
   pte_t *pte;
 
@@ -170,6 +190,15 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 
   if(size == 0)
     panic("mappages: size");
+
+  if (va % SUPERPGSIZE == 0 && size == SUPERPGSIZE) {
+    if((pte = walk(pagetable, va, 2)) == 0)
+      return -1;
+    if(*pte & PTE_V)
+      panic("mappages: remap");
+    *pte = PA2PTE(pa) | perm | PTE_V | PTE_S;
+    return 0;
+  }
   
   a = va;
   last = va + size - PGSIZE;
@@ -210,9 +239,13 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
+    
+    if ((*pte & PTE_S) != 0) {
+      sz = SUPERPGSIZE;
+    }
     if(do_free){
-      uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      void *pa = (void *)PTE2PA(*pte);
+      sz == SUPERPGSIZE ? kfree_super(pa) : kfree(pa);
     }
     *pte = 0;
   }
@@ -262,8 +295,13 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
 
   oldsz = PGROUNDUP(oldsz);
   for(a = oldsz; a < newsz; a += sz){
-    sz = PGSIZE;
-    mem = kalloc();
+    if (a % SUPERPGSIZE == 0 && a + SUPERPGSIZE <= newsz) {
+      sz = SUPERPGSIZE;
+      mem = kalloc_super();
+    } else {
+      sz = PGSIZE;
+      mem = kalloc();
+    }
     if(mem == 0){
       uvmdealloc(pagetable, a, oldsz);
       return 0;
@@ -272,7 +310,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
     memset(mem, 0, sz);
 #endif
     if(mappages(pagetable, a, sz, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
-      kfree(mem);
+      sz == SUPERPGSIZE ? kfree_super(mem) : kfree(mem);
       uvmdealloc(pagetable, a, oldsz);
       return 0;
     }
@@ -312,6 +350,9 @@ freewalk(pagetable_t pagetable)
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
     } else if(pte & PTE_V){
+      // 所有使用 freewalk 的情况，都是对应表项已经被 unmap 了。
+      // 走到这里，说明尝试对没 unmap 的内存做页表释放了。
+      // 这个函数不用改。
       panic("freewalk: leaf");
     }
   }
@@ -345,18 +386,23 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += szinc){
     szinc = PGSIZE;
-    szinc = PGSIZE;
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    if ((flags & PTE_S) != 0) {
+      if ((mem = kalloc_super()) == 0)
+        goto err;
+      szinc = SUPERPGSIZE;
+    }
+    else if((mem = kalloc()) == 0)
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+
+    memmove(mem, (char*)pa, szinc);
+    if(mappages(new, i, szinc, (uint64)mem, flags) != 0){
+      szinc == SUPERPGSIZE ? kfree_super(mem) : kfree(mem);
       goto err;
     }
   }
