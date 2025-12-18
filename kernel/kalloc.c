@@ -43,6 +43,7 @@ kinit()
 void
 freerange(void *pa_start, void *pa_end)
 {
+  // 这个函数只在 kinit 中被用到了
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   // 根据是否是 Super Page 对齐判断是要释放小页还是大页。
@@ -113,7 +114,8 @@ kalloc(void)
   if (!r) {
     release(&kmem.lock);
     kborrow();
-    return kalloc();
+    acquire(&kmem.lock);
+    r = kmem.freelist; 
   }
   if(r)
     kmem.freelist = r->next;
