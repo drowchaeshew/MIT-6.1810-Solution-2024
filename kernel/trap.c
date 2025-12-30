@@ -49,8 +49,9 @@ usertrap(void)
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
-  if(r_scause() == 8){
+
+  uint64 scause = r_scause();
+  if(scause == 8){
     // system call
 
     if(killed(p))
@@ -65,6 +66,18 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (scause == 0xf) {
+    // store page fault error
+    printf(
+      "Page fault ERR: sepc=0x%lx stval=0x%lx pid=%d\n",
+      r_sepc(), r_stval(), myproc()->pid
+    );
+    uint64 va = r_stval(); // faulting virtual address
+    if (cow(va) != 0) {
+      setkilled(p);
+      printf("Opps, failed\n");
+    }
+    printf("OK, cow finished\n");
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

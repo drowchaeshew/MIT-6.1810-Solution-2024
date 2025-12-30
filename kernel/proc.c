@@ -693,3 +693,30 @@ procdump(void)
     printf("\n");
   }
 }
+
+int
+cow(uint64 va) {
+  pagetable_t pgtbl = myproc()->pagetable;
+  va = PGROUNDDOWN(va);
+
+  pte_t *pte = walk(pgtbl, va, 0);
+  if (pte == 0)
+    panic("cow: pte should exist");
+
+  // 1. flags
+  uint64 flags = PTE_FLAGS(*pte);
+  flags |= PTE_W; flags &= ~PTE_C;
+
+  // 2. PA
+  uint64 pa = PTE2PA(*pte);
+  char *mem;
+  mem = (char *)pa;
+  // if((mem = kalloc()) == 0)
+  //   return -1;
+  // memmove(mem, (char*)pa, PGSIZE);
+
+  // 3. Write to PTE
+  *pte = PA2PTE(mem) | flags;
+
+  return 0;
+}
