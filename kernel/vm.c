@@ -165,6 +165,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
+    pget((void *)pa);
     a += PGSIZE;
     pa += PGSIZE;
   }
@@ -192,7 +193,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      pput((void*)pa);
+      // kfree((void *)pa);
     }
     *pte = 0;
   }

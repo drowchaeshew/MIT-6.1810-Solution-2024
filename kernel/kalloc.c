@@ -14,6 +14,8 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+int prefs[0x8000]; // page refs count
+
 struct run {
   struct run *next;
 };
@@ -80,3 +82,20 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+void
+pget(void *pa) {
+  if (pa >= (void *)end && pa < (void *)PHYSTOP) {
+    // printf("pa = %p, i = %ld\n", pa, ((uint64)pa - KERNBASE) >> 12);
+    ++prefs[((uint64)pa - KERNBASE) >> 12];
+  }
+}
+
+void
+pput(void *pa) {
+  if(--prefs[((uint64)pa - KERNBASE) >> 12] == 0) {
+    printf("kfree(%p)\n", pa);
+    kfree(pa);
+  }
+}
+
