@@ -232,7 +232,7 @@ main(int argc, char *argv[])
 
   filetest();
 
-  // forkforktest();
+  forkforktest();
 
   printf("ALL COW TESTS PASSED\n");
 

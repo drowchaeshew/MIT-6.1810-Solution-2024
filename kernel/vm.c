@@ -241,10 +241,7 @@ uvmfirst(pagetable_t pagetable, uchar *src, uint sz)
   // Since pget prints pid, and proc is not fully initialized yet,
   // Such logic in pget is copied here.
 
-  mappages(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
-  int idx = ((uint64)mem - KERNBASE) >> 12;
-  ++prefs[idx];
-
+  uvmmap(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
   memmove(mem, src, sz);
 }
 

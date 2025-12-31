@@ -15,8 +15,6 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
-int prefs[0x8000]; // page refs count
-
 struct run {
   struct run *next;
 };
@@ -24,6 +22,7 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
+  int refs[0x8000];
 } kmem;
 
 void
@@ -93,13 +92,20 @@ pget(void *pa) {
 #ifdef PECHO
     printf("pget(%p) from pid %d\n", pa, myproc()->pid);
 #endif
-    ++prefs[idx];
+    acquire(&kmem.lock);
+    ++kmem.refs[idx];
+    release(&kmem.lock);
   }
 }
 
 void
 pput(void *pa) {
-  if(--prefs[((uint64)pa - KERNBASE) >> 12] == 0) {
+  int cnt;
+  acquire(&kmem.lock);
+  cnt = --kmem.refs[((uint64)pa - KERNBASE) >> 12];
+  release(&kmem.lock);
+
+  if(cnt == 0) {
 #ifdef PECHO
     printf("pput(%p) from pid %d (free)\n", pa, myproc()->pid);
 #endif
