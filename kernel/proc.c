@@ -710,10 +710,11 @@ cow(uint64 va) {
   // 2. PA
   uint64 pa = PTE2PA(*pte);
   char *mem;
-  mem = (char *)pa;
-  // if((mem = kalloc()) == 0)
-  //   return -1;
-  // memmove(mem, (char*)pa, PGSIZE);
+
+  if((mem = kalloc()) == 0)
+    return -1;
+  memmove(mem, (char*)pa, PGSIZE);
+  pput((void *)pa);
 
   // 3. Write to PTE
   *pte = PA2PTE(mem) | flags;

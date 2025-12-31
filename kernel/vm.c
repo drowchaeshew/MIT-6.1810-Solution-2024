@@ -15,6 +15,8 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+extern int prefs[]; // page refs count
+
 // Make a direct-map page table for the kernel.
 pagetable_t
 kvmmake(void)
@@ -135,6 +137,17 @@ kvmmap(pagetable_t kpgtbl, uint64 va, uint64 pa, uint64 sz, int perm)
     panic("kvmmap");
 }
 
+int 
+uvmmap(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
+{
+  int ret = mappages(pagetable, va, size, pa, perm);
+  if (ret != 0) {
+    return ret;
+  }
+  pget((void *)pa);
+  return 0;
+}
+
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa.
 // va and size MUST be page-aligned.
@@ -165,7 +178,6 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
-    pget((void *)pa);
     a += PGSIZE;
     pa += PGSIZE;
   }
@@ -194,7 +206,6 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     if(do_free){
       uint64 pa = PTE2PA(*pte);
       pput((void*)pa);
-      // kfree((void *)pa);
     }
     *pte = 0;
   }
@@ -225,7 +236,15 @@ uvmfirst(pagetable_t pagetable, uchar *src, uint sz)
     panic("uvmfirst: more than a page");
   mem = kalloc();
   memset(mem, 0, PGSIZE);
+
+  // We can replace this with pget()
+  // Since pget prints pid, and proc is not fully initialized yet,
+  // Such logic in pget is copied here.
+
   mappages(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
+  int idx = ((uint64)mem - KERNBASE) >> 12;
+  ++prefs[idx];
+
   memmove(mem, src, sz);
 }
 
@@ -248,7 +267,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
       return 0;
     }
     memset(mem, 0, PGSIZE);
-    if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
+    if(uvmmap(pagetable, a, PGSIZE, (uint64)mem, PTE_R|PTE_U|xperm) != 0){
       kfree(mem);
       uvmdealloc(pagetable, a, oldsz);
       return 0;
@@ -331,11 +350,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       flags |= PTE_C;
       flags &= ~(PTE_W);
     }
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    // mem = (char *)pa;
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    mem = (char *)pa;
+    if(uvmmap(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
       goto err;
     }

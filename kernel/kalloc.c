@@ -8,6 +8,7 @@
 #include "spinlock.h"
 #include "riscv.h"
 #include "defs.h"
+#include "proc.h"
 
 void freerange(void *pa_start, void *pa_end);
 
@@ -85,17 +86,19 @@ kalloc(void)
 
 void
 pget(void *pa) {
+  int idx = ((uint64)pa - KERNBASE) >> 12;
   if (pa >= (void *)end && pa < (void *)PHYSTOP) {
-    // printf("pa = %p, i = %ld\n", pa, ((uint64)pa - KERNBASE) >> 12);
-    ++prefs[((uint64)pa - KERNBASE) >> 12];
+    // printf("pget(%p) from pid %d\n", pa, myproc()->pid);
+    ++prefs[idx];
   }
 }
 
 void
 pput(void *pa) {
   if(--prefs[((uint64)pa - KERNBASE) >> 12] == 0) {
-    printf("kfree(%p)\n", pa);
+    // printf("pput(%p) from pid %d (free)\n", pa, myproc()->pid);
     kfree(pa);
+  } else {
+    // printf("pput(%p) from pid %d\n", pa, myproc()->pid);
   }
 }
-
