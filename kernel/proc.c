@@ -718,6 +718,7 @@ cow(uint64 va) {
 
   // 3. Write to PTE
   *pte = PA2PTE(mem) | flags;
+  pget(mem);
 
   return 0;
 }

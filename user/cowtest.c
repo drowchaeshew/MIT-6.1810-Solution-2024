@@ -230,7 +230,7 @@ main(int argc, char *argv[])
   threetest();
   threetest();
 
-  // filetest();
+  filetest();
 
   // forkforktest();
 
