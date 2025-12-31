@@ -144,7 +144,9 @@ uvmmap(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   if (ret != 0) {
     return ret;
   }
-  pget((void *)pa);
+  for (uint64 p = pa; p < pa + size; p += PGSIZE) {
+    pget((void *)pa);
+  }
   return 0;
 }
 

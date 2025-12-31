@@ -698,10 +698,13 @@ int
 cow(uint64 va) {
   pagetable_t pgtbl = myproc()->pagetable;
   va = PGROUNDDOWN(va);
+  if (va >= MAXVA) {
+    return -1;
+  }
 
   pte_t *pte = walk(pgtbl, va, 0);
   if (pte == 0)
-    panic("cow: pte should exist");
+    return -1;
 
   // 1. flags
   uint64 flags = PTE_FLAGS(*pte);
