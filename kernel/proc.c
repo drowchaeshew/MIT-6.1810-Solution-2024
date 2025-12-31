@@ -705,6 +705,9 @@ cow(uint64 va) {
 
   // 1. flags
   uint64 flags = PTE_FLAGS(*pte);
+  if ((flags & PTE_C) == 0) {
+    return -1;
+  }
   flags |= PTE_W; flags &= ~PTE_C;
 
   // 2. PA

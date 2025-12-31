@@ -236,11 +236,6 @@ uvmfirst(pagetable_t pagetable, uchar *src, uint sz)
     panic("uvmfirst: more than a page");
   mem = kalloc();
   memset(mem, 0, PGSIZE);
-
-  // We can replace this with pget()
-  // Since pget prints pid, and proc is not fully initialized yet,
-  // Such logic in pget is copied here.
-
   uvmmap(pagetable, 0, PGSIZE, (uint64)mem, PTE_W|PTE_R|PTE_X|PTE_U);
   memmove(mem, src, sz);
 }
@@ -341,20 +336,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
 
-#define NEW
-#ifdef NEW
     if (*pte & PTE_W) {
       *pte |= PTE_C;
       *pte &= ~(PTE_W);
     }
     flags = PTE_FLAGS(*pte);
-#else
-    flags = PTE_FLAGS(*pte);
-    if (flags & PTE_W) {
-      flags |= PTE_C;
-      flags &= ~(PTE_W);
-    }
-#endif
 
     if(uvmmap(new, i, PGSIZE, (uint64)pa, flags) != 0){
       goto err;

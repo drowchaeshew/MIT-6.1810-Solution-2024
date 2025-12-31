@@ -67,17 +67,10 @@ usertrap(void)
 
     syscall();
   } else if (scause == 0xf) {
-    // store page fault error
-    // printf(
-    //   "Page fault ERR: sepc=0x%lx stval=0x%lx pid=%d\n",
-    //   r_sepc(), r_stval(), myproc()->pid
-    // );
     uint64 va = r_stval(); // faulting virtual address
     if (cow(va) != 0) {
       setkilled(p);
-      // printf("Opps, failed\n");
     }
-    // printf("OK, cow finished\n");
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

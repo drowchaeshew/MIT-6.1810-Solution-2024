@@ -83,36 +83,20 @@ kalloc(void)
   return (void*)r;
 }
 
-// #define PECHO
-
 void
 pget(void *pa) {
   int idx = ((uint64)pa - KERNBASE) >> 12;
-  if (pa >= (void *)end && pa < (void *)PHYSTOP) {
-#ifdef PECHO
-    printf("pget(%p) from pid %d\n", pa, myproc()->pid);
-#endif
-    acquire(&kmem.lock);
-    ++kmem.refs[idx];
-    release(&kmem.lock);
-  }
+  acquire(&kmem.lock);
+  ++kmem.refs[idx];
+  release(&kmem.lock);
 }
 
 void
 pput(void *pa) {
-  int cnt;
   acquire(&kmem.lock);
-  cnt = --kmem.refs[((uint64)pa - KERNBASE) >> 12];
+  int cnt = --kmem.refs[((uint64)pa - KERNBASE) >> 12];
   release(&kmem.lock);
-
-  if(cnt == 0) {
-#ifdef PECHO
-    printf("pput(%p) from pid %d (free)\n", pa, myproc()->pid);
-#endif
+  if (cnt == 0) {
     kfree(pa);
-  } else {
-#ifdef PECHO
-    printf("pput(%p) from pid %d\n", pa, myproc()->pid);
-#endif
   }
 }
