@@ -77,6 +77,30 @@ sys_recv(void)
   //
   // Your code here.
   //
+
+  // recv(int dport, int *src, short *sport, char *buf, int maxlen)
+  int dport; 
+  // These 3 addresses are all UVA. Take care! 
+  uint64 p_src;   // source ip address
+  uint64 p_sport; // source port
+  uint64 bufaddr; // data
+  int maxlen;
+  // TODO ignore maxlen first
+
+  argint(0, &dport);
+  argaddr(1, &p_src);
+  argaddr(2, &p_sport);
+  argaddr(3, &bufaddr);
+  argint(4, &maxlen);
+
+  // Let's ignore dport (and the requirment of bind(dport)) in the first place. 
+  
+  printf("sys_recv: Now going to sleep...\n");
+  acquire(&netlock);
+  sleep(0, &netlock);
+  printf("sys_recv: Waked up.\n");
+  release(&netlock);
+
   return -1;
 }
 
@@ -192,6 +216,18 @@ ip_rx(char *buf, int len)
   // Your code here.
   //
   
+  // 我应该从中解出 IP 段的内容，并考虑如何发送给调用 recv 的进程。
+  // 关于如何唤醒进程，参考：console.c:96,172
+
+  struct eth *ineth = (struct eth *) buf;
+  struct arp *inarp = (struct arp *) (ineth + 1);
+  char *inbuf = (char *)(inarp + 1);
+
+  len -= (sizeof(struct eth) + sizeof(struct arp));
+  inbuf = inbuf; // TODO
+  
+  printf("ip_rx: now wakeup()\n");
+  wakeup(0);
 }
 
 //

@@ -135,8 +135,11 @@ e1000_transmit(char *buf, int len)
   struct tx_desc *p = &tx_ring[regs[E1000_TDT]]; 
 
   // Two problems:
-  // 1. What if tail === head -1 (mod TX_RING_SIZE)
   // 2. What if transmition failed? How to tell the related process? 
+  if ((regs[E1000_TDT] + 1) % TX_RING_SIZE == regs[E1000_TDH]) {
+    return -1;
+  }
+
   if (p->addr != 0) {
     kfree((void *)p->addr);
   }
@@ -159,24 +162,23 @@ e1000_transmit(char *buf, int len)
   p->cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS; 
   p->status = 0x0;
 
-  // I'm wondering what does this mean...?
-  // tx_desc 中已经有 addr 字段了。
-  // tx_bufs[0] = (char *)addr;
-
-  printf("Descriptor set, start transmitting.\n");
-
   // Now, set some registers to transmit the packet
   // 寄存器按照 128 位对齐。
   // regs[E1000_CTL] = 0;
   // "...特别需要使用索引 E1000_RDT 和 E1000_TDT."
 
-  // 我需要设置 regs[E1000_TDT] 的值: 来自 
+  // 我需要设置 regs[E1000_TDT] 的值: 来自 手册3.4
   regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
 
   // TODO 遗留问题：`buf` never freed! 
   // This should be done when the hardware complete the transmition.
   // But where? 
   // Maybe in e1000_intr(). Figure it out later.
+  // 
+  // I'm wondering what does this mean...?
+  // tx_desc 中已经有 addr 字段了。
+  // tx_bufs[0] = (char *)addr;
+
   return 0;
 }
 
@@ -190,6 +192,38 @@ e1000_recv(void)
   // Create and deliver a buf for each packet (using net_rx()).
   //
 
+  // // [E1000 3.2.3]
+  // struct rx_desc
+  // {
+  //   uint64 addr;       /* Address of the descriptor's data buffer */
+  //   uint16 length;     /* Length of data DMAed into data buffer */
+  //   uint16 csum;       /* Packet checksum */
+  //   uint8 status;      /* Descriptor status */
+  //   uint8 errors;      /* Descriptor Errors */
+  //   uint16 special;
+  // };
+
+
+  // Before started, rx_ring[regs[E1000_RDT]] refers to 
+  // last rx_desc finished handling by the software.
+  // So it's OK to come up with an addition at the first place.
+
+  // RDT == RDH indicates the queue is empty (for hardware)
+
+  // TODO handle multiple packages.
+
+  regs[E1000_RDT] = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+  struct rx_desc *p = &rx_ring[regs[E1000_RDT]];
+  if ((p->status & E1000_RXD_STAT_DD) == 0) {
+    return;
+  }
+
+  net_rx((void *)p->addr, p->length);
+
+  memset(p, 0, sizeof(struct rx_desc));
+  if ((p->addr = (uint64)kalloc()) == 0) {
+    panic("e1000_recv: kalloc failed");
+  }
 }
 
 void
