@@ -19,6 +19,10 @@ static uint8 host_mac[ETHADDR_LEN] = { 0x52, 0x55, 0x0a, 0x00, 0x02, 0x02 };
 
 static struct spinlock netlock;
 
+static struct {
+  char *buf;
+} ports[0x10000];  // 65536
+
 void
 netinit(void)
 {
@@ -85,7 +89,6 @@ sys_recv(void)
   uint64 p_sport; // source port
   uint64 bufaddr; // data
   int maxlen;
-  // TODO ignore maxlen first
 
   argint(0, &dport);
   argaddr(1, &p_src);
@@ -93,15 +96,36 @@ sys_recv(void)
   argaddr(3, &bufaddr);
   argint(4, &maxlen);
 
-  // Let's ignore dport (and the requirment of bind(dport)) in the first place. 
+  // Let's ignore the requirment of bind(dport) in the first place. 
+
+  // TODO No need for sleep, if a packet has already come & buffered.
   
-  printf("sys_recv: Now going to sleep...\n");
   acquire(&netlock);
-  sleep(0, &netlock);
-  printf("sys_recv: Waked up.\n");
+  sleep(&ports[dport], &netlock);
   release(&netlock);
 
-  return -1;
+  struct proc *p = myproc();
+
+  struct eth *eth = (struct eth *)ports[dport].buf;
+  struct ip *ip = (struct ip *)(eth + 1);
+  struct udp *udp = (struct udp *)(ip + 1);
+
+  int src = ntohl(ip->ip_src);
+  short sport = ntohs(udp->sport);
+  int len = ntohs(udp->ulen) - sizeof(udp);
+  if (maxlen < len) {
+    len = maxlen;
+  }
+
+  copyout(p->pagetable, p_src, (char *)&src, sizeof(int));
+  copyout(p->pagetable, p_sport, (char *)&sport, sizeof(short));
+  copyout(p->pagetable, bufaddr, (void *)(udp + 1), len);
+
+  kfree((void *)ports[dport].buf);
+
+  return len;
+
+  // return -1; // if failed
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
@@ -220,14 +244,25 @@ ip_rx(char *buf, int len)
   // 关于如何唤醒进程，参考：console.c:96,172
 
   struct eth *ineth = (struct eth *) buf;
-  struct arp *inarp = (struct arp *) (ineth + 1);
-  char *inbuf = (char *)(inarp + 1);
+  struct ip *inip = (struct ip *) (ineth + 1);
 
-  len -= (sizeof(struct eth) + sizeof(struct arp));
-  inbuf = inbuf; // TODO
-  
-  printf("ip_rx: now wakeup()\n");
-  wakeup(0);
+  // 判断是否为 UDP 包
+  // 你只需完成足够的工作以通过 make grade 即可。
+
+  if (inip->ip_p == 0x11) {
+    // 来自维基百科-IP报文。17 代表了 UDP 包
+    struct udp *inudp = (struct udp *)(inip + 1);
+
+    // 因为释放内存的工作是 sys_recv 的，
+    // 所以将整个页面交给它；
+
+    short port = ntohs(inudp->dport);
+    // TODO 判断端口是否有进程在监听 (bind())
+
+    ports[port].buf = buf;
+    wakeup(&ports[port]);
+  }
+
 }
 
 //
