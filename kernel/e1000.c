@@ -102,7 +102,81 @@ e1000_transmit(char *buf, int len)
   // a pointer so that it can be freed after send completes.
   //
 
-  
+  // 你的发送代码必须将数据包数据的指针放入传输（TX）环形缓冲区中的描述符中。 
+  // struct tx_desc 描述了描述符的格式。
+  // 你需要确保每个缓冲区最终都会被传递给 kfree() ，
+  // 但前提是 E1000 已完成数据包的发送
+  // （E1000 会在描述符中设置 E1000_TXD_STAT_DD 位以表示这一点）。
+  /* 
+      // [E1000 3.3.3]
+      struct tx_desc
+      {
+        uint64 addr;
+        uint16 length;
+        uint8 cso;
+        uint8 cmd;
+        uint8 status;
+        uint8 css;
+        uint16 special;
+      };
+  */
+  /* Transmit registers: See `Transmit Control` in (e1000_dev.h:33) */
+  // /* Transmit Descriptor status definitions [E1000 3.3.3.2] */
+  // #define E1000_TXD_STAT_DD    0x00000001 /* Descriptor Done */
+
+  // CSO should be set to zero 
+  // CMD: see 3.3.3.1
+  //  1. bit29 should not be set to enable legacy mode
+  //  2. set CMD.RS to 1b, to automatically set 1b to STATUS.DD
+  //    (Descriptor done) when hardware is handling this descriptor
+  // STATUS: see 3.3.3.2
+
+
+  struct tx_desc *p = &tx_ring[regs[E1000_TDT]]; 
+
+  // Two problems:
+  // 1. What if tail === head -1 (mod TX_RING_SIZE)
+  // 2. What if transmition failed? How to tell the related process? 
+  if (p->addr != 0) {
+    kfree((void *)p->addr);
+  }
+
+  p->addr = (uint64) buf;  // PA, DMA, OK
+  p->length = len; 
+  p->cso = 0; // CheckSum Offset, Not used
+  // p->cmd and p->status are complex, do this later
+  p->css = 0x0; // CheckSum Start, Not used
+  p->special = 0; // NOT used
+ 
+  // For now, other functions are not needed. 
+  // We set the last bit to indicate this is the last descriptor 
+  // of a packet. 
+  // TODO modify this for bigger packet.
+  // 
+  // We set bit-3 (CMD.RS) to enable status field.
+  // It would be set to 0x1 if tx suceed.
+  // i.e. p->status == E1000_TXD_STAT_DD
+  p->cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS; 
+  p->status = 0x0;
+
+  // I'm wondering what does this mean...?
+  // tx_desc 中已经有 addr 字段了。
+  // tx_bufs[0] = (char *)addr;
+
+  printf("Descriptor set, start transmitting.\n");
+
+  // Now, set some registers to transmit the packet
+  // 寄存器按照 128 位对齐。
+  // regs[E1000_CTL] = 0;
+  // "...特别需要使用索引 E1000_RDT 和 E1000_TDT."
+
+  // 我需要设置 regs[E1000_TDT] 的值: 来自 
+  regs[E1000_TDT] = (regs[E1000_TDT] + 1) % TX_RING_SIZE;
+
+  // TODO 遗留问题：`buf` never freed! 
+  // This should be done when the hardware complete the transmition.
+  // But where? 
+  // Maybe in e1000_intr(). Figure it out later.
   return 0;
 }
 
