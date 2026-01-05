@@ -19,8 +19,16 @@ static uint8 host_mac[ETHADDR_LEN] = { 0x52, 0x55, 0x0a, 0x00, 0x02, 0x02 };
 
 static struct spinlock netlock;
 
-struct {
-  char *buf;
+// head == tail 表示空
+// head === tail + 1 (mod PORT_BUF_SIZE) 表示满
+// 面向使用方的：sys_recv 从 head 获取、ip_rx 向tail写入.
+// 先……用这个大粒度的锁好了，锁住所有的 ports...
+// 更好的方案是每个 port 设计一个锁.
+#define PORT_BUF_SIZE 16
+struct port {
+  char *bufs[PORT_BUF_SIZE];
+  int head; 
+  int tail;
   int pid; 
 } ports[0x10000];  // 65536
 // TODO
@@ -54,8 +62,6 @@ sys_bind(void)
     return -1;
   }
   ports[port].pid = pid;
-  // DEBUG
-  printf("binding port %d to pid %d\n", port, pid);
   release(&netlock);
   return 0;  
 }
@@ -74,6 +80,7 @@ sys_unbind(void)
   acquire(&netlock);
   if (ports[port].pid == myproc()->pid) {
     ports[port].pid = 0;
+    // TODO remove(free) all stashed packages.
   }
   release(&netlock);
   return 0;  
@@ -115,19 +122,15 @@ sys_recv(void)
   argaddr(3, &bufaddr);
   argint(4, &maxlen);
 
-  // Let's ignore the requirment of bind(dport) in the first place. 
-
   void *buf;
+  struct port *port = &ports[dport];
   
   acquire(&netlock);
-  buf = ports[dport].buf;
-  if (buf == 0) {
-    // DEBUG
-    printf("Pid = %d sleep on port %d\n", myproc()->pid, dport);
-    sleep(&ports[dport], &netlock);
-    buf = ports[dport].buf;
+  while (port->head == port->tail) {
+    sleep(port, &netlock);
   }
-  ports[dport].buf = 0;
+  buf = port->bufs[port->head];
+  port->head = (port->head + 1) % PORT_BUF_SIZE;
   release(&netlock);
 
   struct proc *p = myproc();
@@ -282,13 +285,11 @@ ip_rx(char *buf, int len)
     // 因为释放内存的工作是 sys_recv 的，
     // 所以将整个页面交给它；
 
-    short port = ntohs(inudp->dport);
+    short dport = ntohs(inudp->dport);
+    struct port *port = &ports[dport];
 
     acquire(&netlock);
-    // DEBUG
-    printf("ip_rx: Recv packet: port=%d, pid=%d\n", port, ports[port].pid);
-
-    int pid = ports[port].pid;
+    int pid = port->pid;
     release(&netlock);
 
     if (pid == 0) {
@@ -298,9 +299,15 @@ ip_rx(char *buf, int len)
     }
 
     acquire(&netlock);
-    ports[port].buf = buf;
-    printf("Waking up for port %d\n", port);
-    wakeup(&ports[port]);
+    if ((port->tail + 1) % PORT_BUF_SIZE == port->head) {
+      kfree(buf);
+    } else {
+      port->bufs[port->tail] = buf;
+      port->tail = (port->tail + 1) % PORT_BUF_SIZE;
+      if ((port->head + 1) % PORT_BUF_SIZE == port->tail) {
+        wakeup(port);
+      }
+    }
     release(&netlock);
   }
 

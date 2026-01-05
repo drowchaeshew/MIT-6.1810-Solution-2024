@@ -179,9 +179,6 @@ e1000_transmit(char *buf, int len)
   // tx_desc 中已经有 addr 字段了。
   // tx_bufs[0] = (char *)addr;
 
-  // DEBUG
-  printf("One pack sent.\n");
-
   return 0;
 }
 
