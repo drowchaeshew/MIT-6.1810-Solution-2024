@@ -210,19 +210,19 @@ e1000_recv(void)
 
   // RDT == RDH indicates the queue is empty (for hardware)
 
-  // TODO handle multiple packages.
+  while (1) {
+    int idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+    struct rx_desc *p = &rx_ring[idx];
+    if ((p->status & E1000_RXD_STAT_DD) == 0) {
+      return;
+    }
+    net_rx((void *)p->addr, p->length);
 
-  regs[E1000_RDT] = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
-  struct rx_desc *p = &rx_ring[regs[E1000_RDT]];
-  if ((p->status & E1000_RXD_STAT_DD) == 0) {
-    return;
-  }
-
-  net_rx((void *)p->addr, p->length);
-
-  memset(p, 0, sizeof(struct rx_desc));
-  if ((p->addr = (uint64)kalloc()) == 0) {
-    panic("e1000_recv: kalloc failed");
+    memset(p, 0, sizeof(struct rx_desc));
+    if ((p->addr = (uint64)kalloc()) == 0) {
+      panic("e1000_recv: kalloc failed");
+    }
+    regs[E1000_RDT] = idx;
   }
 }
 

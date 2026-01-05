@@ -21,7 +21,11 @@ static struct spinlock netlock;
 
 static struct {
   char *buf;
+  int pid; 
 } ports[0x10000];  // 65536
+// TODO
+// if the proc is killed (quit abnormally),
+// The port will never be freed! 
 
 void
 netinit(void)
@@ -38,11 +42,22 @@ netinit(void)
 uint64
 sys_bind(void)
 {
-  //
-  // Your code here.
-  //
+  int port; 
+  int pid; 
+  argint(0, &port);
+  pid = myproc()->pid;
 
-  return -1;
+  acquire(&netlock);
+  if (ports[port].pid != 0 && ports[port].pid != pid) {
+    printf("port %d already in use.\n", port);
+    release(&netlock);
+    return -1;
+  }
+  ports[port].pid = pid;
+  // DEBUG
+  printf("binding port %d to pid %d\n", port, pid);
+  release(&netlock);
+  return 0;  
 }
 
 //
@@ -53,11 +68,15 @@ sys_bind(void)
 uint64
 sys_unbind(void)
 {
-  //
-  // Optional: Your code here.
-  //
+  int port; 
+  argint(0, &port);
 
-  return 0;
+  acquire(&netlock);
+  if (ports[port].pid == myproc()->pid) {
+    ports[port].pid = 0;
+  }
+  release(&netlock);
+  return 0;  
 }
 
 //
@@ -257,7 +276,15 @@ ip_rx(char *buf, int len)
     // 所以将整个页面交给它；
 
     short port = ntohs(inudp->dport);
-    // TODO 判断端口是否有进程在监听 (bind())
+
+    // DEBUG
+    printf("ip_rx: Sending packet to port %d with pid %d\n", port, ports[port].pid);
+
+    if (ports[port].pid == 0) {
+      // No one is listening the port, so drop it.
+      kfree(buf);
+      return;
+    }
 
     ports[port].buf = buf;
     wakeup(&ports[port]);
