@@ -134,9 +134,8 @@ e1000_transmit(char *buf, int len)
 
   struct tx_desc *p = &tx_ring[regs[E1000_TDT]]; 
 
-  // Two problems:
-  // 2. What if transmition failed? How to tell the related process? 
   if ((regs[E1000_TDT] + 1) % TX_RING_SIZE == regs[E1000_TDH]) {
+    kfree(buf);
     return -1;
   }
 
@@ -154,7 +153,6 @@ e1000_transmit(char *buf, int len)
   // For now, other functions are not needed. 
   // We set the last bit to indicate this is the last descriptor 
   // of a packet. 
-  // TODO modify this for bigger packet.
   // 
   // We set bit-3 (CMD.RS) to enable status field.
   // It would be set to 0x1 if tx suceed.

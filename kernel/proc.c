@@ -364,6 +364,9 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
+  for (int i = 0; i < 0x10000; i++) {
+    unbind(i, p->pid);
+  }
 
   // close all ports
   // TODO

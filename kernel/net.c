@@ -50,18 +50,20 @@ netinit(void)
 uint64
 sys_bind(void)
 {
-  int port; 
+  int sport; 
   int pid; 
-  argint(0, &port);
+  argint(0, &sport);
   pid = myproc()->pid;
 
+  struct port *port = &ports[sport];
+
   acquire(&netlock);
-  if (ports[port].pid != 0 && ports[port].pid != pid) {
-    printf("port %d already in use.\n", port);
+  if (port->pid != 0 && port->pid != pid) {
+    printf("port %d already in use.\n", sport);
     release(&netlock);
     return -1;
   }
-  ports[port].pid = pid;
+  port->pid = pid;
   release(&netlock);
   return 0;  
 }
@@ -74,16 +76,32 @@ sys_bind(void)
 uint64
 sys_unbind(void)
 {
-  int port; 
-  argint(0, &port);
+  int sport; 
+  argint(0, &sport);
 
+  return unbind(sport, myproc()->pid);
+}
+
+int 
+unbind(int sport, int pid)
+{
+  struct port *port = &ports[sport];
+  int ret = 0;
   acquire(&netlock);
-  if (ports[port].pid == myproc()->pid) {
-    ports[port].pid = 0;
-    // TODO remove(free) all stashed packages.
+  if (port->pid == pid) {
+    port->pid = 0;
+    for (int i = 0; i < PORT_BUF_SIZE; i++) {
+      if (port->bufs[i] != 0) {
+        kfree(port->bufs[i]);
+      }
+    }
+    port->head = 0;
+    port->tail = 0;
+  } else {
+    ret = -1;
   }
   release(&netlock);
-  return 0;  
+  return ret;
 }
 
 //
@@ -153,8 +171,6 @@ sys_recv(void)
   kfree(buf);
 
   return len;
-
-  // return -1; // if failed
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
@@ -264,10 +280,6 @@ ip_rx(char *buf, int len)
   if(seen_ip == 0)
     printf("ip_rx: received an IP packet\n");
   seen_ip = 1;
-
-  //
-  // Your code here.
-  //
   
   // 我应该从中解出 IP 段的内容，并考虑如何发送给调用 recv 的进程。
   // 关于如何唤醒进程，参考：console.c:96,172
@@ -300,6 +312,7 @@ ip_rx(char *buf, int len)
 
     acquire(&netlock);
     if ((port->tail + 1) % PORT_BUF_SIZE == port->head) {
+      // queue full. abondon this page.
       kfree(buf);
     } else {
       port->bufs[port->tail] = buf;
