@@ -19,8 +19,8 @@ static uint8 host_mac[ETHADDR_LEN] = { 0x52, 0x55, 0x0a, 0x00, 0x02, 0x02 };
 
 static struct spinlock netlock;
 
-// head == tail 表示空
-// head === tail + 1 (mod PORT_BUF_SIZE) 表示满
+// head == tail -> queue empty
+// head === tail + 1 (mod PORT_BUF_SIZE) -> queue full
 // 面向使用方的：sys_recv 从 head 获取、ip_rx 向tail写入.
 // 先……用这个大粒度的锁好了，锁住所有的 ports...
 // 更好的方案是每个 port 设计一个锁.
@@ -30,10 +30,7 @@ struct port {
   int head; 
   int tail;
   int pid; 
-} ports[0x10000];  // 65536
-// TODO
-// if the proc is killed (quit abnormally),
-// The port will never be freed! 
+} ports[0x10000];  
 
 void
 netinit(void)
@@ -122,11 +119,7 @@ unbind(int sport, int pid)
 uint64
 sys_recv(void)
 {
-  //
-  // Your code here.
-  //
 
-  // recv(int dport, int *src, short *sport, char *buf, int maxlen)
   int dport; 
   // These 3 addresses are all UVA. Take care! 
   uint64 p_src;   // source ip address
@@ -281,22 +274,15 @@ ip_rx(char *buf, int len)
     printf("ip_rx: received an IP packet\n");
   seen_ip = 1;
   
-  // 我应该从中解出 IP 段的内容，并考虑如何发送给调用 recv 的进程。
-  // 关于如何唤醒进程，参考：console.c:96,172
-
   struct eth *ineth = (struct eth *) buf;
   struct ip *inip = (struct ip *) (ineth + 1);
 
-  // 判断是否为 UDP 包
-  // 你只需完成足够的工作以通过 make grade 即可。
-
+  // 来自维基百科-IP报文。17 代表了 UDP 包
   if (inip->ip_p == 0x11) {
-    // 来自维基百科-IP报文。17 代表了 UDP 包
     struct udp *inudp = (struct udp *)(inip + 1);
 
     // 因为释放内存的工作是 sys_recv 的，
     // 所以将整个页面交给它；
-
     short dport = ntohs(inudp->dport);
     struct port *port = &ports[dport];
 
