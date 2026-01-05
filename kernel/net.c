@@ -19,7 +19,7 @@ static uint8 host_mac[ETHADDR_LEN] = { 0x52, 0x55, 0x0a, 0x00, 0x02, 0x02 };
 
 static struct spinlock netlock;
 
-static struct {
+struct {
   char *buf;
   int pid; 
 } ports[0x10000];  // 65536
@@ -117,15 +117,22 @@ sys_recv(void)
 
   // Let's ignore the requirment of bind(dport) in the first place. 
 
-  // TODO No need for sleep, if a packet has already come & buffered.
+  void *buf;
   
   acquire(&netlock);
-  sleep(&ports[dport], &netlock);
+  buf = ports[dport].buf;
+  if (buf == 0) {
+    // DEBUG
+    printf("Pid = %d sleep on port %d\n", myproc()->pid, dport);
+    sleep(&ports[dport], &netlock);
+    buf = ports[dport].buf;
+  }
+  ports[dport].buf = 0;
   release(&netlock);
 
   struct proc *p = myproc();
 
-  struct eth *eth = (struct eth *)ports[dport].buf;
+  struct eth *eth = (struct eth *)buf;
   struct ip *ip = (struct ip *)(eth + 1);
   struct udp *udp = (struct udp *)(ip + 1);
 
@@ -140,7 +147,7 @@ sys_recv(void)
   copyout(p->pagetable, p_sport, (char *)&sport, sizeof(short));
   copyout(p->pagetable, bufaddr, (void *)(udp + 1), len);
 
-  kfree((void *)ports[dport].buf);
+  kfree(buf);
 
   return len;
 
@@ -277,17 +284,24 @@ ip_rx(char *buf, int len)
 
     short port = ntohs(inudp->dport);
 
+    acquire(&netlock);
     // DEBUG
-    printf("ip_rx: Sending packet to port %d with pid %d\n", port, ports[port].pid);
+    printf("ip_rx: Recv packet: port=%d, pid=%d\n", port, ports[port].pid);
 
-    if (ports[port].pid == 0) {
+    int pid = ports[port].pid;
+    release(&netlock);
+
+    if (pid == 0) {
       // No one is listening the port, so drop it.
       kfree(buf);
       return;
     }
 
+    acquire(&netlock);
     ports[port].buf = buf;
+    printf("Waking up for port %d\n", port);
     wakeup(&ports[port]);
+    release(&netlock);
   }
 
 }

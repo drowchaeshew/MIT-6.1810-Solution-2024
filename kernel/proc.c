@@ -20,6 +20,11 @@ static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
 
+extern struct {
+  char *buf;
+  int pid; 
+} ports[0x10000];  // 65536
+
 // helps ensure that wakeups of wait()ing
 // parents are not lost. helps obey the
 // memory model when using p->parent.
@@ -357,6 +362,15 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+
+  // close all ports
+  // TODO
+  // This should be guard by netlock! 
+  for (int i = 0; i < 0x10000; i++) {
+    if (ports[i].pid == p->pid) {
+      ports[i].pid = 0;
     }
   }
 
