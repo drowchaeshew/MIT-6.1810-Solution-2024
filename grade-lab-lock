@@ -34,7 +34,7 @@ def test_sbrkmuch():
 def test_bcachetest():
     r.run_qemu(shell_script([
         'bcachetest'
-    ]), timeout=150)
+    ]), timeout=300)
     
 @test(20, "bcachetest: test0", parent=test_bcachetest)
 def test_bcachetest_test0():

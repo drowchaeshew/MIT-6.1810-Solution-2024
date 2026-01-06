@@ -24,6 +24,7 @@
 #include "buf.h"
 
 #define BUCKETS 13
+#define FREE_BUCK BUCKETS
 #define BUF_HASH(dev, blockno) (((dev) + (blockno)) % BUCKETS)
 
 struct {
@@ -31,11 +32,12 @@ struct {
 
   struct bucket {
     struct spinlock lock;
+    struct buf *free;
     struct buf *head;
-  } bucket[BUCKETS + 1]; // The last bucket is for free caches
+  } bucket[BUCKETS + 1]; // The last bucket is for free bufs
 } bcache;
 
-char bcache_name[BUCKETS][16];
+char bcache_name[BUCKETS + 1][16];
 
 void
 binit(void)
@@ -47,12 +49,18 @@ binit(void)
     initlock(&bcache.bucket[i].lock, bcache_name[i]);
   }
 
-  // Everyone in the free bucket.
+  // Reserve a buf for each bucket. 
+  // The left are saved in the free-bucket.
   struct bucket *free = &bcache.bucket[BUCKETS];
 
-  for(b = bcache.buf; b < bcache.buf+NBUF; b++){
-    b->next = free->head;
-    free->head = b;
+  for (int i = 0; i < NBUF; i++) {
+    b = &bcache.buf[i];
+    if (i < BUCKETS) {
+      bcache.bucket[i].free = b;
+    } else {
+      b->next = free->head;
+      free->head = b;
+    }
     initsleeplock(&b->lock, "buffer");
   }
 }
@@ -78,31 +86,76 @@ bget(uint dev, uint blockno)
         return b;
     }
   }
+
   // Opps. Not cached.
 
-  // We can't release bucket->lock now. 
-  // If so, if another process is requesting the same block
-  // at the same time, multiple buffer will be related to a 
-  // same sector.
-  // 
-  // Then let's walk through the free bucket to get one.
-  // Since we always acquire non-free bucket first, 
-  // there should not be any dead-lock...hopefully...
+  // Don't worry. Let's check the free buf in the same bucket first.
+  b = bucket->free;
+  if (b) {
+    bucket->free = 0;
+  }
 
-  struct bucket *free = &bcache.bucket[BUCKETS];
-  acquire(&free->lock);
-  if (!free->head) {
+  // Opps. No free page in current bucket. 
+  // Let's try alloc one from free-bucket.
+  if (!b) {
+
+    struct bucket *free = &bcache.bucket[FREE_BUCK];
+    acquire(&free->lock);
+    if (free->head) {
+      b = free->head;
+      free->head = b->next;
+    }
     release(&free->lock);
+  }
+
+  // We still can't release the bucket lock...
+  // Reason: avoiding another process wanting the same buf
+  // start running the function, finding that no buf such that
+  // the buf moving code is run twice.
+  // 
+  // The lock should not be released until (or): 
+  // 1. we've finished set a buf to the wanted bucket;
+  // 2. No free buf can be moved.
+
+  // Opps! Even the free-bucket don't have free pages! 
+  // We have no choice but steal one from another bucket.free...
+  if (!b) {
+    for (int i = 0; i < BUCKETS; ++i) {
+      struct bucket *another = &bcache.bucket[i];
+
+      // This predication avoids dead-lock.
+      // Dead lock may occur, if two processes with diff bucket are
+      // both hungry for pages, and the free-bucket is empty.
+      // If Bucket-A lock and require for Bucket-B's lock, and vice versa, 
+      // dead lock happens.
+      // But if we don't try to get lock of a bucket without free buf, 
+      // we can avoid getting a hungry process, thus the deadlock is avoided.
+      if (another->free) {
+        acquire(&another->lock);
+        // free buf can be used after the predication and before the acquirment of the lock.
+        // So there's chance that another->free is 0 now.
+        if (another->free) {
+          b = another->free; 
+          another->free = 0;
+        }
+        release(&another->lock);
+      }
+      if (b) {
+        break;
+      }
+    }
+    // This is the only way to let b == 0
+  }
+
+  // Sometimes going through the all bucket without a free buf 
+  // doesn't mean there's no free buf. 
+  // This is kind of arbitrary.
+  if (!b) { // unlikely
     release(&bucket->lock);
     panic("bget: no buffers");
   }
 
-  b = free->head;
-  free->head = free->head->next;
-  release(&free->lock);
-
-  // b->refcnt == 0 is not checked. 
-  // We assume bufs in free always satisfy it.
+  // Now add the buf to the bucket.
   b->next = bucket->head;
   bucket->head = b;
 
@@ -111,6 +164,7 @@ bget(uint dev, uint blockno)
   b->valid = 0;
   b->refcnt = 1;
   release(&bucket->lock);
+
   acquiresleep(&b->lock);
   return b;
 }
@@ -154,8 +208,6 @@ brelse(struct buf *b)
   acquire(&bucket->lock);
   b->refcnt--;
   if (b->refcnt == 0) {
-    // 因为30个buf放到13个桶里，基本上不太会冲突——
-    // 直接遍历够了
     if (bucket->head == b) {
       bucket->head = b->next;
     } else {
@@ -167,18 +219,21 @@ brelse(struct buf *b)
           break;
         }
       }
-      // Maybe not found...
-      if (flag == 0) {
-        // TODO release bucket->lock
+      if (flag == 0) { // Not likely
+        release(&bucket->lock);
         panic("brelse: Not found!\n");
       }
     }
 
-    struct bucket *free = &bcache.bucket[BUCKETS];
-    acquire(&free->lock);
-    b->next = free->head;
-    free->head = b;
-    release(&free->lock);
+    if (!bucket->free) {
+      bucket->free = b;
+    } else {
+      struct bucket *free = &bcache.bucket[FREE_BUCK];
+      acquire(&free->lock);
+      b->next = free->head;
+      free->head = b;
+      release(&free->lock);
+    }
   }
   release(&bucket->lock);
 }
