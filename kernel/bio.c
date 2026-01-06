@@ -76,15 +76,38 @@ bget(uint dev, uint blockno)
 
   int idx = BUF_HASH(dev, blockno);
   struct bucket *bucket = &bcache.bucket[idx];
+  struct bucket *free = &bcache.bucket[FREE_BUCK];
 
   acquire(&bucket->lock);
+
+  // The buf can be cached in three places. 
+  // First, in the bucket->head list...
   for (b = bucket->head; b; b = b->next) {
-    if (b->dev == dev && b->blockno == blockno) {
-        b->refcnt++;
-        release(&bucket->lock);
-        acquiresleep(&b->lock);
-        return b;
-    }
+    if (b->dev == dev && b->blockno == blockno)
+      break;
+  }
+
+  // Second, the bucket->free
+  if (!b) {
+    b = bucket->free; 
+    if (b && b->dev == dev && b->blockno == blockno) {
+      bucket->free = 0;
+      b->next = bucket->head;
+      bucket->head = b;
+    } else {
+      b = 0; // set b = 0 to indicate the buf is still not found.
+    } 
+  }
+
+  // Third, maybe in the free-bucket? 
+  // Let's don't think about it.
+
+  // IF buf found, return it.
+  if (b) {
+    b->refcnt++;
+    release(&bucket->lock);
+    acquiresleep(&b->lock);
+    return b;
   }
 
   // Opps. Not cached.
@@ -99,7 +122,6 @@ bget(uint dev, uint blockno)
   // Let's try alloc one from free-bucket.
   if (!b) {
 
-    struct bucket *free = &bcache.bucket[FREE_BUCK];
     acquire(&free->lock);
     if (free->head) {
       b = free->head;
