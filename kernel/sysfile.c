@@ -503,3 +503,11 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_symlink(void)
+{
+  printf("sys_symlink\n");
+  // TODO 
+  return 0;
+}
