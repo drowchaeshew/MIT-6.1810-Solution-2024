@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+#define SYMLINK_MAXDEPTH 16 // Arbitray
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -309,17 +311,14 @@ create(char *path, short type, short major, short minor)
   return 0;
 }
 
-
-// TODO 
-// Add read symlink to sys_open
 uint64
 sys_open(void)
 {
   char path[MAXPATH];
-  int fd, omode;
-  struct file *f;
+  int omode;
+  int n, fd;
   struct inode *ip;
-  int n;
+  struct file *f;
 
   argint(1, &omode);
   if((n = argstr(0, path, MAXPATH)) < 0)
@@ -340,6 +339,28 @@ sys_open(void)
     }
     ilock(ip);
     if(ip->type == T_DIR && omode != O_RDONLY){
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+
+  // Read link.
+  // Well, I implement it in a simple way: 
+  // limit the max link jump count.
+  if (!(omode & O_NOFOLLOW)) {
+    int i;
+    for (i = 0; i < SYMLINK_MAXDEPTH && ip->type == T_SYMLINK; ++i) {
+      char pdst[MAXPATH];
+      readi(ip, 0, (uint64)pdst, 0, MAXPATH);
+      iunlockput(ip);
+      if ((ip = namei(pdst)) == 0) {
+        end_op();
+        return -1;
+      }
+      ilock(ip);
+    }
+    if (ip->type == T_SYMLINK && i == SYMLINK_MAXDEPTH) {
       iunlockput(ip);
       end_op();
       return -1;
@@ -554,7 +575,8 @@ sys_symlink(void)
   if (writei(ip, 0, (uint64)pdst, 0, sizeof(pdst)) != sizeof(pdst)) {
     return -1;
   }
-  iunlock(ip);
+
+  iunlockput(ip);
 
   end_op();
   return 0;
