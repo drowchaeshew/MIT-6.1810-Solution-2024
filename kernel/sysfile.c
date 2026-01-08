@@ -248,6 +248,8 @@ create(char *path, short type, short major, short minor)
   struct inode *ip, *dp;
   char name[DIRSIZ];
 
+  // This will set dp to the directory inode, 
+  // and set name to the real filename
   if((dp = nameiparent(path, name)) == 0)
     return 0;
 
@@ -256,6 +258,12 @@ create(char *path, short type, short major, short minor)
   if((ip = dirlookup(dp, name, 0)) != 0){
     iunlockput(dp);
     ilock(ip);
+
+    // Mostly, T_SYMLINK should go here.
+    // TODO adjust this. 
+    // Think: When should we return ip directly, 
+    // and when we should free the link;
+    // and when we should go through and create a new link.
     if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
       return ip;
     iunlockput(ip);
@@ -301,6 +309,9 @@ create(char *path, short type, short major, short minor)
   return 0;
 }
 
+
+// TODO 
+// Add read symlink to sys_open
 uint64
 sys_open(void)
 {
@@ -504,10 +515,47 @@ sys_pipe(void)
   return 0;
 }
 
+// int open(const char*, int);
+// int symlink(const char*, const char*);
 uint64
 sys_symlink(void)
 {
-  printf("sys_symlink\n");
-  // TODO 
+
+  char pdst[MAXPATH];
+  char psrc[MAXPATH];
+  struct inode *ip;
+
+  if (argstr(0, pdst, MAXPATH) < 0) {
+    return -1;
+  }
+  if (argstr(1, psrc, MAXPATH) < 0) {
+    return -1;
+  }
+
+  // No need to check if the dst path exists.
+  // Just create one.
+
+  // We are now going to do some changes to the disk, 
+  // as well as the log. 
+  // So it's time to begin_op().
+  begin_op();
+
+  // create() will try to find the file given by psrc,
+  // or create one if not exists.
+  // NOTE: the returned ip is already LOCKED.
+  ip = create(psrc, T_SYMLINK, 0, 0);
+  if (ip == 0) {
+    end_op();
+    return -1;
+  }
+
+  // We need to write pdst to the inode.
+  // Refer to dirlink() to see how to write to a directory
+  if (writei(ip, 0, (uint64)pdst, 0, sizeof(pdst)) != sizeof(pdst)) {
+    return -1;
+  }
+  iunlock(ip);
+
+  end_op();
   return 0;
 }
