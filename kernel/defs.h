@@ -12,6 +12,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct vma;
 
 // bio.c
 void            binit(void);
@@ -237,3 +238,9 @@ void            netinit(void);
 void            net_rx(char *buf, int len);
 
 #endif
+
+// mmap.c
+int             vload(uint64 va);
+
+// sysfile.c
+int             argfd(int n, int *pfd, struct file **pf);

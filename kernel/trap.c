@@ -49,8 +49,10 @@ usertrap(void)
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
+
+  int scause = r_scause();
   
-  if(r_scause() == 8){
+  if(scause == 0x8){
     // system call
 
     if(killed(p))
@@ -65,6 +67,13 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (scause == 0xd) { // Load  page fault
+    vload(r_stval()); // TODO sure this can be used? Check with gdb first.
+    p->trapframe->epc -= 4; 
+    // panic("Read page fault. Panic.\n");
+  } else if (scause == 0xf) { // Store page fault
+    // TODO
+    panic("Write page fault. Panic.\n");
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

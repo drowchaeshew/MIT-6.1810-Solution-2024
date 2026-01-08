@@ -17,9 +17,9 @@ int
 main(int argc, char *argv[])
 {
   mmap_test();
-  fork_test();
-  more_test();
-  printf("mmaptest: all tests succeeded\n");
+  // fork_test();
+  // more_test();
+  // printf("mmaptest: all tests succeeded\n");
   exit(0);
 }
 

@@ -18,7 +18,7 @@
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
-static int
+int
 argfd(int n, int *pfd, struct file **pf)
 {
   int fd;
@@ -502,18 +502,4 @@ sys_pipe(void)
     return -1;
   }
   return 0;
-}
-
-uint64
-sys_mmap(void)
-{
-  printf("Oe! mmap!\n");
-  // TODO return -1 for failed
-}
-
-uint64
-sys_munmap(void)
-{
-  printf("Oe! munmap!\n");
-  // TODO return -1 for failed
 }
