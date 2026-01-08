@@ -503,3 +503,17 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_mmap(void)
+{
+  printf("Oe! mmap!\n");
+  // TODO return -1 for failed
+}
+
+uint64
+sys_munmap(void)
+{
+  printf("Oe! munmap!\n");
+  // TODO return -1 for failed
+}
