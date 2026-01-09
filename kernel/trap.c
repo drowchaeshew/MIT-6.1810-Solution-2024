@@ -68,12 +68,11 @@ usertrap(void)
 
     syscall();
   } else if (scause == 0xd) { // Load  page fault
-    vload(r_stval()); // TODO sure this can be used? Check with gdb first.
+    vload(r_stval());
     p->trapframe->epc -= 4; 
-    // panic("Read page fault. Panic.\n");
   } else if (scause == 0xf) { // Store page fault
-    // TODO
-    panic("Write page fault. Panic.\n");
+    vload(r_stval());
+    p->trapframe->epc -= 4; 
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

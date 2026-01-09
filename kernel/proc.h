@@ -85,7 +85,7 @@ enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 struct vma {
   int valid;
-  int fd;
+  struct file *file;
   int prot;
   int flag;
   uint64 uva;

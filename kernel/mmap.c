@@ -22,14 +22,13 @@ sys_mmap(void)
   int prot;
   int flag;
 
-  int fd; // Maybe of use
   struct file *f; // Maybee of use
 
   // The 0th argument is always 0. No need to get it.
   argint(1, &sz);
   argint(2, &prot); // PROT_READ, PROT_WRITE or both
   argint(3, &flag); // MAP_PRIVATE, or MAP_SHARED. (No need to share mem on MAP_SHARED)
-  argfd(4, &fd, &f);
+  argfd(4, 0, &f);
   // The 5th argument is always 0. No need to get it. (File offset. Maybe of use later)
 
   // It should be easier if the physic memory don't need to be shared 
@@ -76,12 +75,12 @@ sys_mmap(void)
   // TODO really simple achieve: Just use the first slot.
   vp = &proc->vma[0];
 
-  vp->fd = fd;
+  vp->file = f;
   vp->prot = prot;
   vp->flag = flag;
   vp->sz = sz;
 
-  filedup(proc->ofile[vp->fd]); // TODO rethink this.
+  filedup(vp->file);
 
   // TODO! Where should the page place? 
   // LATER let's place the mapped page on somewhere, 
@@ -118,6 +117,7 @@ sys_mmap(void)
 }
 
 struct vma *vget(uint va);
+void vstore(uint64 va, int write_back);
 
 uint64
 sys_munmap(void)
@@ -137,7 +137,8 @@ sys_munmap(void)
   }
   vp->valid = 0;
 
-  fileclose(myproc()->ofile[vp->fd]);
+  vstore(vp->uva, !!(vp->flag & MAP_SHARED));
+  fileclose(vp->file);
 
   return 0;
 }
@@ -190,14 +191,10 @@ vload(uint64 va)
   va = PGROUNDDOWN(va);
   int offset = va - vp->uva;
 
-  // TODO very fragile! 
-  // What if `proc->ofile[vp->fd]` is not a regular file? 
-  // Rethink later.
-  struct inode *ip = proc->ofile[vp->fd]->ip;
+  struct inode *ip = vp->file->ip;
 
   ilock(ip);
   if (readi(ip, 0, (uint64)mem, offset, PGSIZE) == 0) {
-    // TODO handler failure
     iunlock(ip);
     kfree(mem);
     return -1;
@@ -218,9 +215,20 @@ vload(uint64 va)
 }
 
 
+// Unmap the rleated va to 
 // Write the given page to the file related to vma.
 void
-vstore(void)
+vstore(uint64 va, int write_back)
 {
-  // TODO May used in sys_munmap if (flags & MAP_SHARED).
+  struct proc *proc = myproc();
+  // if (mappages(proc->pagetable, va, PGSIZE, (uint64) mem, perm) != 0) {
+
+  // TODO handle failure
+  // We now assume that va is always at the begining of a vma.
+  // We now assume that va is always the first vma
+  int size = proc->vma[0].sz;
+
+  uvmunmap(proc->pagetable, va, PGROUNDUP(size) / PGSIZE, 1);
+
+  // TODO LATER not written back now.
 }
