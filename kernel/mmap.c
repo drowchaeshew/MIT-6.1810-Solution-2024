@@ -16,76 +16,28 @@
 #define min(a, b) ((a) <= (b) ? (a): (b))
 #define max(a, b) ((a) >= (b) ? (a): (b))
 
-// void *mmap(void *, uint64, int, int, int, int);
-uint64
-sys_mmap(void)
+
+// Find a free vma and return it.
+static struct vma *
+valloc(int sz)
 {
-  int sz;
-  int prot;
-  int flag;
-
-  struct file *f; // Maybee of use
-
-  // The 0th argument is always 0. No need to get it.
-  argint(1, &sz);
-  argint(2, &prot); // PROT_READ, PROT_WRITE or both
-  argint(3, &flag); // MAP_PRIVATE, or MAP_SHARED. (No need to share mem on MAP_SHARED)
-  argfd(4, 0, &f);
-  // The 5th argument is always 0. No need to get it. (File offset. Maybe of use later)
-
-  // Remember to ROUND the sz.
-  // NOTE: don't write back the padding part to file.
-
-  // 4. Find out how user proc mem is freed, and insert code
-  //    to free PTE_M pages. (Mostly write back to file when MAP_SHARED)
-  // 5. How to manage multiple mmaped files? 
-
-  // Some extra hints:
-  // 1. The file mappped is opened. With fd, we can get the file 
-  //    and the inode, so it's easy to write to the file. (TODO How to get it?)
-  // 2. Ummap on exit()
-  // 3. Copoy on fork()
-
-  // Check prot here: prot & (f->readable & f->writeable)
-
-  if (prot & PROT_READ) {
-    if (!f->readable) 
-      return -1;
-  }
-  if (prot & PROT_WRITE) {
-    if ((flag & MAP_SHARED) && !(f->writable))
-      return -1;
-  }
-
+  struct vma *vp;
   struct proc *proc = myproc();
-  struct vma *vp; // , *empty;
 
-  // TODO abstract as valloc()
-  // empty = 0;
-  // for (vp = &proc->vma[0]; vp < &proc->vma[NOVMA]; vp++) {
-  //   // TODO now we assume that everything should be the same.
-  //   // Stretagy can be changed later.
-  //   if (vp->fd == fd && vp->prot == prot && vp->flag == flag && vp->sz == sz) {
-  //     break;
-  //   }
-  //   if (!vp->valid)
-  //     empty = vp;
-  // }
+  // Since no other cpu will be handling this process,
+  // and no kerneltrap will be manipulating vma, 
+  // The lock is not required.
+  // (Really?)
+  for (vp = &proc->vma[0]; vp < &proc->vma[NOVMA]; vp++) {
+    if (!vp->valid) {
+      vp->valid = 1;
+      break;
+    }
+  }
 
-  // if (vp == &proc->vma[NOVMA]) {
-  //   if (empty == 0)
-  //     panic("vget: No free vma");
-  //   vp = empty;
-  // }
-
-  // TODO really simple achieve: Just use the first slot.
-  vp = &proc->vma[0];
-
-  vp->file = f;
-  vp->prot = prot;
-  vp->flag = flag;
-
-  filedup(vp->file);
+  if (vp == &proc->vma[NOVMA]) {
+    return 0; // no free vma slot
+  }
 
   // TODO! Where should the page place? 
   // LATER let's place the mapped page on somewhere, 
@@ -102,7 +54,7 @@ sys_mmap(void)
   // MMAPBASE + n * 0x80000
   // 
   // Explanation: 0x80000 = 128 * PGSIZE > 67 * PGSIZE
-  // MMAPBASE + NOFILE * 0x80000 = 0x09800000, 
+  // MMAPBASE + NOFILE * 0x80000 = 0x90800000, 
   // still far away from VMMAX.
   // Good solution. Mipa~
 
@@ -115,10 +67,93 @@ sys_mmap(void)
   // sz = PGROUNDUP(sz);
 
   // A proper position: 0x90000000 (arbitary)
-  vp->start = MMAPBASE; // TODO adujst this later.
+  vp->start = MMAP(vp - &proc->vma[0]);
   vp->end = vp->start + sz;
 
-  vp->valid = 1;
+  // TDOO enable this when debugging multiple mmap
+  // printf("VMA alloced [%ld], vp->start = %lx\n", vp - &proc->vma[0], vp->start);
+
+  return vp;
+}
+
+static struct vma *
+vfind(uint64 va)
+{
+  struct vma *vp;
+  struct vma *arr = myproc()->vma;
+
+  for (vp = arr; vp < &arr[NOVMA]; vp++) {
+    if (!vp->valid)
+      continue;
+    if (va >= vp->start && va < vp->end) {
+      // printf("vfind(%lx) [%ld]\n", va, vp - arr);
+      return vp;
+    }
+  }
+  return 0;
+}
+
+// return written sz
+static int 
+vdump(uint64 va, struct inode *ip, int off, int sz)
+{
+  int ret;
+  begin_op();
+  ilock(ip); // Lock here: ensure ip->size won't change
+  if (off > ip->size) {
+    ret = 0;
+    goto end;
+  }
+  sz = min(sz, ip->size - off);
+  if (writei(ip, 1, va, off, sz) < 0) {
+    ret = -1;
+    goto end;
+  }
+end:
+  iunlock(ip);
+  end_op();
+  return ret;
+}
+
+// void *mmap(void *, uint64, int, int, int, int);
+uint64
+sys_mmap(void)
+{
+  int sz;
+  int prot;
+  int flag;
+  struct file *file;
+
+  // The 0th argument is always 0. No need to get it.
+  argint(1, &sz);
+  argint(2, &prot); // PROT_READ, PROT_WRITE or both
+  argint(3, &flag); // MAP_PRIVATE, or MAP_SHARED. (No need to share mem on MAP_SHARED)
+  argfd(4, 0, &file);
+  // The 5th argument is always 0. No need to get it. (File offset. Maybe of use later)
+
+  // 4. Find out how user proc mem is freed, and insert code
+  //    to free PTE_M pages. (Mostly write back to file when MAP_SHARED)
+  // 5. How to manage multiple mmaped files? 
+
+  // Some extra hints:
+  // 1. The file mappped is opened. With fd, we can get the file 
+  //    and the inode, so it's easy to write to the file. (TODO How to get it?)
+  // 2. Ummap on exit()
+  // 3. Copoy on fork()
+
+  if ((prot & PROT_READ && !file->readable)
+    || ((prot & PROT_WRITE) && (flag & MAP_SHARED) && !(file->writable))
+  ) return -1;
+
+  struct vma *vp;
+
+  if ((vp = valloc(sz)) == 0)
+    panic("vget: No free vma");
+
+  filedup(file);
+  vp->file = file;
+  vp->prot = prot;
+  vp->flag = flag;
 
   // NO lazy mode now.
   vload(vp->start);
@@ -129,76 +164,55 @@ sys_mmap(void)
 uint64
 sys_munmap(void)
 {
-  uint64 addr;
+  // Assumption:
+  // * vp->start & vp->end are PGSIZE aligned
+  uint64 start, end;
   int sz; 
 
-  argaddr(0, &addr);
+  argaddr(0, &start);
   argint(1, &sz);
 
-  struct vma *vp = &myproc()->vma[0]; // TODO LATER Multiple VMA
-  if (vp == 0) {
+  struct vma *vp = vfind(start); 
+  if (!vp) {
     return -1;
   }
 
-  // TODO LATER
-  // There's only three conditions: 
-  // 1. vp->uva == addr, vp->sz == sz 
-  //    # Remove the mapping
-  // 2. vp->uva == addr, vp->sz > sz
-  // 3. vp->uva < addr, addr + zs == vp->uva + vp->sz
-  // Fail on other conditions.
+  end = min(start + sz, vp->end);
 
-  // addr = PGROUNDUP(addr);
+  // TODO change start and end for PGSIZE alignement
 
-  // TODO now only the whole vma. (addr == va->start, addr + sz == va->end)
-  // The page is loaded lazily... So not all pages are written to the pagetable.
+  if (start == vp->start && end == vp->end) {
+    printf("munmap: case-1\n");
+  } else if (start == vp->start) {
+    printf("munmap: case-2\n");
+  } else {
+    if (end < vp->end) {
+      panic("You said no hole!");
+    }
+    printf("munmap: case-3\n");
+  }
 
   pagetable_t pgtbl = myproc()->pagetable;
-
-  // Not all pages are mapped! 
-  // Check if the page is mapped first.
-  // 
-  // Assumption:
-  // 1. vp->start & vp->end is PGSIZE aligned
-  // 
   struct inode *ip = vp->file->ip;
 
-  // TODO warning: `sz` is not used.
-  // To determine where to end unmap
 
-  // Now we assume the pages are all loaded once the first Page Fault occurs.
+  // Now we assume the pages are all loaded.
+  // For lazy mapped pages, consider them later.
+
   // TODO now we just unmap the whole vma.
   // 
-  for (uint64 addr = vp->start; addr < vp->end; addr += PGSIZE) {
+  for (uint64 addr = start; addr < end; addr += PGSIZE) {
     if (vp->flag & MAP_SHARED) {
-      // Write this page to the file
-      uint64 off = addr - vp->start;
-
-      // TODO What if user is writing the file with fp at the same time?
-      int sz = vp->file->ip->size;
-      sz = sz > off ? sz - off : 0;
-      sz = min(sz, PGSIZE);
-
-      if (sz > 0) {
-        begin_op();
-        ilock(ip);
-        if (writei(ip, 1, addr, off, sz) < 0) {
-          // TOOD handler error
-          iunlock(ip);
-          end_op();
-          return -1;
-        }
-        iunlock(ip);
-        end_op();
-      }
+      // What if failed? (res < 0)? We don't care about it.
+      vdump(addr, ip, addr - vp->start, PGSIZE);
     }
     uvmunmap(pgtbl, addr, 1, 1);
   }
 
-  // TODO LATER only do this when the whole vma is unmmapping.
-  fileclose(vp->file);
-  vp->valid = 0;
-
+  if (vp->start == start && vp->end == end) {
+    fileclose(vp->file);
+    vp->valid = 0;
+  }
   return 0;
 }
 
