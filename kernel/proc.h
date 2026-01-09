@@ -88,8 +88,8 @@ struct vma {
   struct file *file;
   int prot;
   int flag;
-  uint64 uva;
-  uint64 sz;
+  uint64 start;
+  uint64 end;
 };
 
 // Per-process state

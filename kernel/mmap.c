@@ -45,10 +45,14 @@ sys_mmap(void)
   // 3. Copoy on fork()
 
   // Check prot here: prot & (f->readable & f->writeable)
-  if (
-    (f->readable != !!(prot & PROT_READ)) 
-    || (f->writable != !!(prot && PROT_WRITE))) {
-    return -1;
+
+  if (prot & PROT_READ) {
+    if (!f->readable) 
+      return -1;
+  }
+  if (prot & PROT_WRITE) {
+    if ((flag & MAP_SHARED) && !(f->writable))
+      return -1;
   }
 
   struct proc *proc = myproc();
@@ -78,7 +82,6 @@ sys_mmap(void)
   vp->file = f;
   vp->prot = prot;
   vp->flag = flag;
-  vp->sz = sz;
 
   filedup(vp->file);
 
@@ -110,14 +113,16 @@ sys_mmap(void)
   sz = PGROUNDUP(sz);
 
   // A proper position: 0x90000000 (arbitary)
-  vp->uva = MMAPBASE; // TODO adujst this later.
+  vp->start = MMAPBASE; // TODO adujst this later.
+  vp->end = vp->start + sz;
 
   vp->valid = 1;
-  return vp->uva;
-}
 
-struct vma *vget(uint va);
-void vstore(uint64 va, int write_back);
+  // NO lazy mode now.
+  vload(vp->start);
+
+  return vp->start;
+}
 
 uint64
 sys_munmap(void)
@@ -128,42 +133,45 @@ sys_munmap(void)
   argaddr(0, &addr);
   argint(1, &sz);
 
-  // TODO Later 
-  // Assume that it will always unmap the whole vma.
-
-  struct vma *vp = vget(addr);
+  struct vma *vp = &myproc()->vma[0]; // TODO LATER Multiple VMA
   if (vp == 0) {
     return -1;
   }
-  vp->valid = 0;
 
-  vstore(vp->uva, !!(vp->flag & MAP_SHARED));
+  // TODO LATER
+  // There's only three conditions: 
+  // 1. vp->uva == addr, vp->sz == sz 
+  //    # Remove the mapping
+  // 2. vp->uva == addr, vp->sz > sz
+  // 3. vp->uva < addr, addr + zs == vp->uva + vp->sz
+  // Fail on other conditions.
+
+  // addr = PGROUNDUP(addr);
+
+  // TODO now only the whole vma. (addr == va->start, addr + sz == va->end)
+  // The page is loaded lazily... So not all pages are written to the pagetable.
+
+  pagetable_t pgtbl = myproc()->pagetable;
+
+  // Not all pages are mapped! 
+  // Check if the page is mapped first.
+  // 
+  // Assumption:
+  // 1. vp->start & vp->end is PGSIZE aligned
+  // 
+
+  // Now we assume the pages are all loaded once the first Page Fault occurs.
+  for (uint64 addr = vp->start; addr < vp->end; addr += PGSIZE) {
+    uvmunmap(pgtbl, addr, 1, 1);
+    // TODO write to file if PROT_SHARE
+  }
+
+  // TODO LATER only do this when the whole vma is unmmapping.
   fileclose(vp->file);
+  vp->valid = 0;
 
   return 0;
 }
-
-
-// Given a va (user), 
-// return the vma related to it.
-// return 0 for not found.
-struct vma *
-vget(uint va)
-{
-  // Let's find the va first.
-  // For each valid vma as vp, check if va is within [vp->uva ~ vp->uva + vp->sz)
-
-  // TODO LATER 
-  // as a demo, there can be only one vma. 
-  struct vma *vp; 
-
-  struct proc *proc = myproc();
-  if ((vp = &proc->vma[0])->valid == 0) {
-    return 0;
-  }
-  return vp;
-}
-
 
 // TODO bad naming.
 // With a given va, 
@@ -171,64 +179,48 @@ vget(uint va)
 int 
 vload(uint64 va)
 {
-  struct vma *vp = vget(va);
   struct proc *proc = myproc();
 
-
-  char *mem = kalloc();
-  if (mem == 0) {
-    return 0;
-  }
-
-  memset(mem, 0, PGSIZE);
-  // Write something to the page. 
-  // !! Always rember to free mem on failure !!
-
-  // Can't use fileread(proc->ofile[vp->fd], ...): 
-  // This will change the file->offset.
-
-  // See struct vma.
-  va = PGROUNDDOWN(va);
-  int offset = va - vp->uva;
-
+  // TODO Later Multiple VMA 
+  // TODO not alloc one, but also the wanted one!
+  // NOTE: use va
+  struct vma *vp = &proc->vma[0]; 
   struct inode *ip = vp->file->ip;
 
-  ilock(ip);
-  if (readi(ip, 0, (uint64)mem, offset, PGSIZE) == 0) {
-    iunlock(ip);
-    kfree(mem);
-    return -1;
-  }
-  iunlock(ip);
 
   // No need to consider PTE_X.
   int perm = PTE_U;
   if (vp->prot & PROT_WRITE) perm |= PTE_W;
   if (vp->prot & PROT_READ)  perm |= PTE_R;
 
-  if (mappages(proc->pagetable, va, PGSIZE, (uint64) mem, perm) != 0) {
-    kfree(mem);
-    return -1;
+  // Assumption:
+  // vp->start is PGSIZE aligned
+
+
+  // Write something to the page. 
+  // !! Always rember to free mem on failure !!
+
+  char *mem;
+  for (uint64 addr = vp->start; addr < vp->end; addr += PGSIZE) {
+    if ((mem = kalloc()) == 0) {
+      // TODO handle the failure
+      // uvmunmap()
+    }
+    int offset = addr - vp->start;
+
+    memset(mem, 0, PGSIZE);
+    ilock(ip);
+    if (readi(ip, 0, (uint64)mem, offset, PGSIZE) < 0) {
+      iunlock(ip);
+      kfree(mem); // TODO unmmap former pages
+      return -1;
+    }
+    iunlock(ip);
+
+    if (mappages(proc->pagetable, addr, PGSIZE, (uint64) mem, perm) != 0) {
+      kfree(mem); // TODO unmap former pages
+      return -1;
+    }
   }
-
   return 0;
-}
-
-
-// Unmap the rleated va to 
-// Write the given page to the file related to vma.
-void
-vstore(uint64 va, int write_back)
-{
-  struct proc *proc = myproc();
-  // if (mappages(proc->pagetable, va, PGSIZE, (uint64) mem, perm) != 0) {
-
-  // TODO handle failure
-  // We now assume that va is always at the begining of a vma.
-  // We now assume that va is always the first vma
-  int size = proc->vma[0].sz;
-
-  uvmunmap(proc->pagetable, va, PGROUNDUP(size) / PGSIZE, 1);
-
-  // TODO LATER not written back now.
 }
