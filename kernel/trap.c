@@ -67,12 +67,8 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if (scause == 0xd) { // Load  page fault
+  } else if (scause == 0xd || scause == 0xf) {
     vload(r_stval());
-    p->trapframe->epc -= 4; 
-  } else if (scause == 0xf) { // Store page fault
-    vload(r_stval());
-    p->trapframe->epc -= 4; 
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

@@ -13,6 +13,10 @@
 #include "fcntl.h"
 #include "memlayout.h"
 
+
+// TODO also controls vm.c
+#define LOG_VERBOSE
+
 #define min(a, b) ((a) <= (b) ? (a): (b))
 #define max(a, b) ((a) >= (b) ? (a): (b))
 
@@ -154,9 +158,6 @@ sys_mmap(void)
   vp->prot = prot;
   vp->flag = flag;
 
-  // NO lazy mode now.
-  vload(vp->start);
-
   return vp->start;
 }
 
@@ -165,7 +166,7 @@ sys_munmap(void)
 {
   // Assumption:
   // * vp->start & vp->end are PGSIZE aligned
-  uint64 start, end;
+  uint64 start;
   int sz; 
 
   argaddr(0, &start);
@@ -176,8 +177,7 @@ sys_munmap(void)
     return -1;
   }
 
-  end = min(start + sz, vp->end);
-  munmap(vp, start, end);
+  munmap(vp, start, start + sz);
   return 0;
 }
 
@@ -185,27 +185,16 @@ void
 munmap(struct vma *vp, uint64 start, uint64 end)
 {
   // TODO change start and end for PGSIZE alignement
+  if (!vp->loaded)
+    return;  
 
-  if (start == vp->start && end == vp->end) {
-    printf("munmap: case-1\n");
-  } else if (start == vp->start) {
-    printf("munmap: case-2\n");
-  } else {
-    if (end < vp->end) {
-      panic("You said no hole!");
-    }
-    printf("munmap: case-3\n");
-  }
+  end = min(end, vp->end);
+  if (start != vp->start && end != vp->end)
+    panic("You said no hole!");
 
   pagetable_t pgtbl = myproc()->pagetable;
   struct inode *ip = vp->file->ip;
 
-
-  // Now we assume the pages are all loaded.
-  // For lazy mapped pages, consider them later.
-
-  // TODO now we just unmap the whole vma.
-  // 
   for (uint64 addr = start; addr < end; addr += PGSIZE) {
     if (vp->flag & MAP_SHARED) {
       // What if failed? (res < 0)? We don't care about it.
@@ -220,18 +209,24 @@ munmap(struct vma *vp, uint64 start, uint64 end)
   }
 }
 
-// TODO bad naming.
-// With a given va, 
-// Load related file content into pagetable
 int 
 vload(uint64 va)
 {
-  struct proc *proc = myproc();
+  // Simple achieve: 
+  // Load the whole file into mem at once,
+  // and set vp->loaded = 1 (used in munmap)
+  //
+  // Improve: load by page.
+
+  pagetable_t pgtbl = myproc()->pagetable;
 
   // TODO Later Multiple VMA 
   // TODO not alloc one, but also the wanted one!
   // NOTE: use va
-  struct vma *vp = &proc->vma[0]; 
+  struct vma *vp = vfind(va);
+  if (vp == 0) {
+    return -1;
+  }
   struct inode *ip = vp->file->ip;
 
 
@@ -264,10 +259,11 @@ vload(uint64 va)
     }
     iunlock(ip);
 
-    if (mappages(proc->pagetable, addr, PGSIZE, (uint64) mem, perm) != 0) {
+    if (mappages(pgtbl, addr, PGSIZE, (uint64) mem, perm) != 0) {
       kfree(mem); // TODO unmap former pages
       return -1;
     }
   }
+  vp->loaded = 1;
   return 0;
 }

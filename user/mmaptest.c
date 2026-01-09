@@ -18,12 +18,12 @@ char buf[PGSIZE];
 int
 main(int argc, char *argv[])
 {
-  mmap_test();
 #ifndef DISABLE_SOME
+  mmap_test();
+#endif
   fork_test();
   more_test();
   printf("mmaptest: all tests succeeded\n");
-#endif
   exit(0);
 }
 
@@ -84,8 +84,9 @@ void
 mmap_test(void)
 {
   int fd;
-  // int i;
+
   const char * const f = "mmap.dur";
+  int i;
   char *p;
 
   //
@@ -97,7 +98,6 @@ mmap_test(void)
   if ((fd = open(f, O_RDONLY)) == -1)
     err("open (1)");
 
-#ifndef DISABLE_SOME
   printf("test basic mmap\n");
   //
   // this call to mmap() asks the kernel to map the content
@@ -221,7 +221,6 @@ mmap_test(void)
     err("munmap (4)");
 
   printf("test not-mapped unmap: OK\n");
-#endif
 
   printf("test lazy access\n");
 

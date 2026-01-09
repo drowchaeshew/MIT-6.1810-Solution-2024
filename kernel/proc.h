@@ -90,6 +90,7 @@ struct vma {
   int flag;
   uint64 start;
   uint64 end;
+  char loaded;
 };
 
 // Per-process state
