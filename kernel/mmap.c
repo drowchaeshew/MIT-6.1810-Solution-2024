@@ -138,7 +138,6 @@ sys_mmap(void)
   // Some extra hints:
   // 1. The file mappped is opened. With fd, we can get the file 
   //    and the inode, so it's easy to write to the file. (TODO How to get it?)
-  // 2. Ummap on exit()
   // 3. Copoy on fork()
 
   if ((prot & PROT_READ && !file->readable)
@@ -178,7 +177,13 @@ sys_munmap(void)
   }
 
   end = min(start + sz, vp->end);
+  munmap(vp, start, end);
+  return 0;
+}
 
+void
+munmap(struct vma *vp, uint64 start, uint64 end)
+{
   // TODO change start and end for PGSIZE alignement
 
   if (start == vp->start && end == vp->end) {
@@ -213,7 +218,6 @@ sys_munmap(void)
     fileclose(vp->file);
     vp->valid = 0;
   }
-  return 0;
 }
 
 // TODO bad naming.

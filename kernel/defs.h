@@ -241,6 +241,7 @@ void            net_rx(char *buf, int len);
 
 // mmap.c
 int             vload(uint64 va);
+void            munmap(struct vma *vp, uint64 start, uint64 end);
 
 // sysfile.c
 int             argfd(int n, int *pfd, struct file **pf);

@@ -351,6 +351,14 @@ exit(int status)
   if(p == initproc)
     panic("init exiting");
 
+  // Munmap all mapped vma
+  for (int i = 0; i < NOVMA; i++) {
+    struct vma *vp = &p->vma[i];
+    if (vp->valid) {
+      munmap(vp, vp->start, vp->end);
+    }
+  }
+
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd]){

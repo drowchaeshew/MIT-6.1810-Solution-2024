@@ -84,7 +84,7 @@ void
 mmap_test(void)
 {
   int fd;
-  int i;
+  // int i;
   const char * const f = "mmap.dur";
   char *p;
 
@@ -164,8 +164,6 @@ mmap_test(void)
 
   printf("test mmap read-only: OK\n");
 
-#endif
-
   printf("test mmap read/write\n");
 
   // check that mmap does allow read/write mapping of a
@@ -223,6 +221,7 @@ mmap_test(void)
     err("munmap (4)");
 
   printf("test not-mapped unmap: OK\n");
+#endif
 
   printf("test lazy access\n");
 
