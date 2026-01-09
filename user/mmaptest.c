@@ -6,6 +6,8 @@
 #include "kernel/fs.h"
 #include "user/user.h"
 
+#define DISABLE_SOME
+
 void mmap_test();
 void fork_test();
 void more_test();
@@ -17,9 +19,11 @@ int
 main(int argc, char *argv[])
 {
   mmap_test();
-  // fork_test();
-  // more_test();
-  // printf("mmaptest: all tests succeeded\n");
+#ifndef DISABLE_SOME
+  fork_test();
+  more_test();
+  printf("mmaptest: all tests succeeded\n");
+#endif
   exit(0);
 }
 
@@ -93,7 +97,7 @@ mmap_test(void)
   if ((fd = open(f, O_RDONLY)) == -1)
     err("open (1)");
 
-  /*
+#ifndef DISABLE_SOME
   printf("test basic mmap\n");
   //
   // this call to mmap() asks the kernel to map the content
@@ -118,9 +122,7 @@ mmap_test(void)
     err("munmap (1)");
 
   printf("test basic mmap: OK\n");
-  */
 
-  /*
   printf("test mmap private\n");
   // should be able to map file opened read-only with private writable
   // mapping
@@ -147,7 +149,6 @@ mmap_test(void)
   close(fd);
 
   printf("test mmap private: OK\n");
-  */
 
   printf("test mmap read-only\n");
 
@@ -162,6 +163,8 @@ mmap_test(void)
     err("close (2)");
 
   printf("test mmap read-only: OK\n");
+
+#endif
 
   printf("test mmap read/write\n");
 

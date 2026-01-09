@@ -31,17 +31,9 @@ sys_mmap(void)
   argfd(4, 0, &f);
   // The 5th argument is always 0. No need to get it. (File offset. Maybe of use later)
 
-  // It should be easier if the physic memory don't need to be shared 
-  // between different processes.
-
   // Remember to ROUND the sz.
   // NOTE: don't write back the padding part to file.
 
-  // 1. Think about the mem layout. (under ustack)
-  // 2. Write the page table... Maybe another PTE_* (e.g. PTE_M) is needed.
-  // 3. ~~Read the file, write to the related pages.~~
-  //    The mapped mem should be marked as ~PTE_R.
-  //    when read, a page fault occurs, and then we can read the file & fill in the page.
   // 4. Find out how user proc mem is freed, and insert code
   //    to free PTE_M pages. (Mostly write back to file when MAP_SHARED)
   // 5. How to manage multiple mmaped files? 
@@ -49,7 +41,15 @@ sys_mmap(void)
   // Some extra hints:
   // 1. The file mappped is opened. With fd, we can get the file 
   //    and the inode, so it's easy to write to the file. (TODO How to get it?)
+  // 2. Ummap on exit()
+  // 3. Copoy on fork()
 
+  // Check prot here: prot & (f->readable & f->writeable)
+  if (
+    (f->readable != !!(prot & PROT_READ)) 
+    || (f->writable != !!(prot && PROT_WRITE))) {
+    return -1;
+  }
 
   struct proc *proc = myproc();
   struct vma *vp; // , *empty;
