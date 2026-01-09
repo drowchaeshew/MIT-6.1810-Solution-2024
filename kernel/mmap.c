@@ -13,6 +13,8 @@
 #include "fcntl.h"
 #include "memlayout.h"
 
+#define min(a, b) ((a) <= (b) ? (a): (b))
+#define max(a, b) ((a) >= (b) ? (a): (b))
 
 // void *mmap(void *, uint64, int, int, int, int);
 uint64
@@ -110,7 +112,7 @@ sys_mmap(void)
   // then for addr satisfying sz ~ PGROUNDUP(sz),
   // read / write such address won't trigger a page fault.
   // Take care.
-  sz = PGROUNDUP(sz);
+  // sz = PGROUNDUP(sz);
 
   // A proper position: 0x90000000 (arbitary)
   vp->start = MMAPBASE; // TODO adujst this later.
@@ -159,11 +161,38 @@ sys_munmap(void)
   // Assumption:
   // 1. vp->start & vp->end is PGSIZE aligned
   // 
+  struct inode *ip = vp->file->ip;
+
+  // TODO warning: `sz` is not used.
+  // To determine where to end unmap
 
   // Now we assume the pages are all loaded once the first Page Fault occurs.
+  // TODO now we just unmap the whole vma.
+  // 
   for (uint64 addr = vp->start; addr < vp->end; addr += PGSIZE) {
+    if (vp->flag & MAP_SHARED) {
+      // Write this page to the file
+      uint64 off = addr - vp->start;
+
+      // TODO What if user is writing the file with fp at the same time?
+      int sz = vp->file->ip->size;
+      sz = sz > off ? sz - off : 0;
+      sz = min(sz, PGSIZE);
+
+      if (sz > 0) {
+        begin_op();
+        ilock(ip);
+        if (writei(ip, 1, addr, off, sz) < 0) {
+          // TOOD handler error
+          iunlock(ip);
+          end_op();
+          return -1;
+        }
+        iunlock(ip);
+        end_op();
+      }
+    }
     uvmunmap(pgtbl, addr, 1, 1);
-    // TODO write to file if PROT_SHARE
   }
 
   // TODO LATER only do this when the whole vma is unmmapping.
