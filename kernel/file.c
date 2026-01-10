@@ -65,15 +65,9 @@ fileclose(struct file *f)
   if(f->ref < 1)
     panic("fileclose");
   if(--f->ref > 0){
-#ifdef LOG_VERBOSE
-    printf("Closing file with inode = %d (ref: %d) [%d]\n", f->ip->inum, f->ref, PID(myproc()));
-#endif
     release(&ftable.lock);
     return;
   }
-#ifdef LOG_VERBOSE
-  printf("Closing file with inode = %d (last ref) [%d]\n", f->ip->inum, PID(myproc()));
-#endif
 
   ff = *f;
   f->ref = 0;

@@ -6,10 +6,6 @@
 #include "kernel/fs.h"
 #include "user/user.h"
 
-// #define DISABLE_SOME
-
-#define CP ({printf("OK, line %d\n", __LINE__);})
-
 void mmap_test();
 void fork_test();
 void more_test();
@@ -20,10 +16,8 @@ char buf[PGSIZE];
 int
 main(int argc, char *argv[])
 {
-#ifndef DISABLE_SOME
   mmap_test();
   fork_test();
-#endif
   more_test();
   printf("mmaptest: all tests succeeded\n");
   exit(0);
@@ -86,10 +80,8 @@ void
 mmap_test(void)
 {
   int fd;
-
-  const char * const f = "mmap.dur";
   int i;
-  char *p;
+  const char * const f = "mmap.dur";
 
   //
   // create a file with known content, map it into memory, check that
@@ -116,7 +108,7 @@ mmap_test(void)
   // of the file to be mapped. the last argument is the starting
   // offset in the file.
   //
-  p = mmap(0, PGSIZE*2, PROT_READ, MAP_PRIVATE, fd, 0);
+  char *p = mmap(0, PGSIZE*2, PROT_READ, MAP_PRIVATE, fd, 0);
   if (p == MAP_FAILED)
     err("mmap (1)");
   _v1(p);
@@ -361,8 +353,7 @@ more_test()
   int fd, pid;
   char *p;
   const char * const f = "mmap.dur";
-
-#ifndef DISABLE_SOME
+  
   printf("test munmap prevents access\n");
   
   makefile(f);
@@ -430,9 +421,6 @@ more_test()
   close(fd);
 
   printf("test munmap prevents access: OK\n");
-#else 
-  int st;
-#endif
 
   printf("test writes to read-only mapped memory\n");
 
