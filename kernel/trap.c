@@ -68,7 +68,12 @@ usertrap(void)
 
     syscall();
   } else if (scause == 0xd || scause == 0xf) {
-    vload(r_stval());
+    uint64 addr = r_stval();
+    int ret = 1;
+    if (ret)
+      ret = vload(addr);
+    if (ret)
+      setkilled(p);
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

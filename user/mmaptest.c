@@ -6,7 +6,7 @@
 #include "kernel/fs.h"
 #include "user/user.h"
 
-#define DISABLE_SOME
+// #define DISABLE_SOME
 
 #define CP ({printf("OK, line %d\n", __LINE__);})
 
@@ -22,8 +22,8 @@ main(int argc, char *argv[])
 {
 #ifndef DISABLE_SOME
   mmap_test();
-#endif
   fork_test();
+#endif
   more_test();
   printf("mmaptest: all tests succeeded\n");
   exit(0);
@@ -361,7 +361,8 @@ more_test()
   int fd, pid;
   char *p;
   const char * const f = "mmap.dur";
-  
+
+#ifndef DISABLE_SOME
   printf("test munmap prevents access\n");
   
   makefile(f);
@@ -429,6 +430,9 @@ more_test()
   close(fd);
 
   printf("test munmap prevents access: OK\n");
+#else 
+  int st;
+#endif
 
   printf("test writes to read-only mapped memory\n");
 

@@ -39,10 +39,6 @@ valloc(int sz)
     return 0; // no free vma slot
   }
 
-  // TODO! Where should the page place? 
-  // LATER let's place the mapped page on somewhere, 
-  // and now just consider on mapping one file.
-
   // As for where to map the file content, 
   // Let's do some calculation: 
   // 1. Each mmaped file can take at most 67 pages:
@@ -58,15 +54,6 @@ valloc(int sz)
   // still far away from VMMAX.
   // Good solution. Mipa~
 
-  // TODO LATER 
-  // mem beyond sz is not guard. 
-  // if (sz % PGSIZE) != 0, 
-  // then for addr satisfying sz ~ PGROUNDUP(sz),
-  // read / write such address won't trigger a page fault.
-  // Take care.
-  // sz = PGROUNDUP(sz);
-
-  // A proper position: 0x90000000 (arbitary)
   vp->start = MMAP(vp - &proc->vma[0]);
   vp->end = vp->start + sz;
 
@@ -131,15 +118,6 @@ sys_mmap(void)
   argfd(4, 0, &file);
   // The 5th argument is always 0. No need to get it. (File offset. Maybe of use later)
 
-  // 4. Find out how user proc mem is freed, and insert code
-  //    to free PTE_M pages. (Mostly write back to file when MAP_SHARED)
-  // 5. How to manage multiple mmaped files? 
-
-  // Some extra hints:
-  // 1. The file mappped is opened. With fd, we can get the file 
-  //    and the inode, so it's easy to write to the file. (TODO How to get it?)
-  // 3. Copoy on fork()
-
   if ((prot & PROT_READ && !file->readable)
     || ((prot & PROT_WRITE) && (flag & MAP_SHARED) && !(file->writable))
   ) return -1;
@@ -154,6 +132,7 @@ sys_mmap(void)
   vp->prot = prot;
   vp->flag = flag;
   vp->off  = 0;
+  vp->loaded = 0;
 
   return vp->start;
 }
@@ -181,7 +160,8 @@ sys_munmap(void)
 void
 munmap(struct vma *vp, uint64 start, uint64 end)
 {
-  // TODO change start and end for PGSIZE alignement
+  // Assumption:
+  // * vp->start, vp->end, start, end are PGSIZE aligned
   if (!vp->loaded)
     return;  
 
@@ -201,14 +181,13 @@ munmap(struct vma *vp, uint64 start, uint64 end)
   }
 
   if (vp->start == start && vp->end == end) {
-    fileclose(vp->file);
     vp->valid = 0;
   } 
   
   // Adjust the vma range
   if (vp->start == start) {
     vp->start = end;
-    vp->off   = end;
+    vp->off   = end - start;
   } else if (vp->end == end) {
     vp->end = start;
   }
@@ -226,7 +205,7 @@ vload(uint64 va)
   pagetable_t pgtbl = myproc()->pagetable;
 
   struct vma *vp = vfind(va);
-  if (vp == 0) {
+  if (vp == 0 || vp->loaded) {
     return -1;
   }
   struct inode *ip = vp->file->ip;
@@ -238,7 +217,6 @@ vload(uint64 va)
 
   // Assumption:
   // vp->start is PGSIZE aligned
-
 
   // Write something to the page. 
   // !! Always rember to free mem on failure !!
