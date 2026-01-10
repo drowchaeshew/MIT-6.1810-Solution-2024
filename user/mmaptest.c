@@ -8,6 +8,8 @@
 
 #define DISABLE_SOME
 
+#define CP ({printf("OK, line %d\n", __LINE__);})
+
 void mmap_test();
 void fork_test();
 void more_test();

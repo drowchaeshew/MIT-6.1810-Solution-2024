@@ -13,10 +13,6 @@
 #include "fcntl.h"
 #include "memlayout.h"
 
-
-// TODO also controls vm.c
-#define LOG_VERBOSE
-
 #define min(a, b) ((a) <= (b) ? (a): (b))
 #define max(a, b) ((a) >= (b) ? (a): (b))
 
@@ -157,6 +153,7 @@ sys_mmap(void)
   vp->file = file;
   vp->prot = prot;
   vp->flag = flag;
+  vp->off  = 0;
 
   return vp->start;
 }
@@ -198,7 +195,7 @@ munmap(struct vma *vp, uint64 start, uint64 end)
   for (uint64 addr = start; addr < end; addr += PGSIZE) {
     if (vp->flag & MAP_SHARED) {
       // What if failed? (res < 0)? We don't care about it.
-      vdump(addr, ip, addr - vp->start, PGSIZE);
+      vdump(addr, ip, addr - vp->start + vp->off, PGSIZE);
     }
     uvmunmap(pgtbl, addr, 1, 1);
   }
@@ -206,6 +203,14 @@ munmap(struct vma *vp, uint64 start, uint64 end)
   if (vp->start == start && vp->end == end) {
     fileclose(vp->file);
     vp->valid = 0;
+  } 
+  
+  // Adjust the vma range
+  if (vp->start == start) {
+    vp->start = end;
+    vp->off   = end;
+  } else if (vp->end == end) {
+    vp->end = start;
   }
 }
 
@@ -220,15 +225,11 @@ vload(uint64 va)
 
   pagetable_t pgtbl = myproc()->pagetable;
 
-  // TODO Later Multiple VMA 
-  // TODO not alloc one, but also the wanted one!
-  // NOTE: use va
   struct vma *vp = vfind(va);
   if (vp == 0) {
     return -1;
   }
   struct inode *ip = vp->file->ip;
-
 
   // No need to consider PTE_X.
   int perm = PTE_U;
@@ -248,7 +249,7 @@ vload(uint64 va)
       // TODO handle the failure
       // uvmunmap()
     }
-    int offset = addr - vp->start;
+    int offset = addr - vp->start + vp->off;
 
     memset(mem, 0, PGSIZE);
     ilock(ip);
@@ -266,4 +267,18 @@ vload(uint64 va)
   }
   vp->loaded = 1;
   return 0;
+}
+
+void
+vcopy(struct vma *dst, const struct vma *src)
+{
+  dst->valid = 1; 
+  dst->file = src->file;
+  dst->prot = src->prot;
+  dst->flag = src->flag;
+  dst->start = src->start;
+  dst->end = src->end;
+
+  // dst->loaded = src->loaded; 
+  dst->loaded = 0;
 }

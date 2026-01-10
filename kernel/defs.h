@@ -242,6 +242,11 @@ void            net_rx(char *buf, int len);
 // mmap.c
 int             vload(uint64 va);
 void            munmap(struct vma *vp, uint64 start, uint64 end);
+void            vcopy(struct vma *dst, const struct vma *src);
 
 // sysfile.c
 int             argfd(int n, int *pfd, struct file **pf);
+
+// TODO tricky
+#define PID(p) (*(int *)(((void *)(p)) + 0x30))
+// #define LOG_VERBOSE

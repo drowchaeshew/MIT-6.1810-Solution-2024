@@ -289,6 +289,7 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
+  // This wont' copy mmaped file
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
@@ -301,6 +302,13 @@ fork(void)
 
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
+
+  // Setup process vma for new process
+  for (int i = 0; i < NOVMA; i++) {
+    if (p->vma[i].valid) {
+      vcopy(&np->vma[i], &p->vma[i]);
+    }
+  }
 
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)

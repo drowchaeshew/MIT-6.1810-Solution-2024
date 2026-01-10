@@ -149,7 +149,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 #ifdef LOG_VERBOSE
   // TODO DEBUG
   if (va >= MMAPBASE && va < 0xA0000000)
-    printf("mappages %p, %ld pages\n", (void *)va, size / PGSIZE);
+    printf("mappages %p, %ld pages [%d]\n", (void *)va, size / PGSIZE, PID(myproc()));
 #endif
 
   if((va % PGSIZE) != 0)
@@ -189,7 +189,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 #ifdef LOG_VERBOSE
   // TODO DEBUG
   if (va >= MMAPBASE && va < 0xA0000000)
-    printf("uvmummap %p, %ld pages\n", (void *)va, npages);
+    printf("uvmummap %p, %ld pages [%d]\n", (void *)va, npages, PID(myproc()));
 #endif
 
   if((va % PGSIZE) != 0)
